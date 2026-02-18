@@ -65,7 +65,6 @@ async fn main() {
 
     async fn write_echo(stream: &mut TcpStream, message: &[u8] ){
 
-        println!("Sending {} bytes", bytes_to_string(&message));
         let mut response = Vec::new();
         let clrf = b"\r\n";
 
@@ -73,8 +72,9 @@ async fn main() {
         response.push(b'$');
         response.append(&mut message_length);
         response.append(clrf.to_vec().as_mut());
-        response.append(clrf.to_vec().as_mut());
         response.append(message.to_vec().as_mut());
+        response.append(clrf.to_vec().as_mut());
+
         if stream.write_all(&response).await.is_err() {
             println!("Failed to ECHO");
         };;
