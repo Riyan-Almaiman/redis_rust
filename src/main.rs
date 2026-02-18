@@ -30,7 +30,7 @@ fn main() {
                             if n == 0 {
                                 break; // connection closed
                             }
-                            if bytes_to_string(&buf[0..n]).contains("ping") {
+                            if bytes_to_string(&buf[0..n]).contains("PING") {
                                 ping(_stream);
                             }
                         },
