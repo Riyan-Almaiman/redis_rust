@@ -52,6 +52,6 @@ fn main() {
         String::from_utf8_lossy(bytes).to_string()
     }
     fn ping(stream: &mut TcpStream ){
-        stream.write_all(b"pong").unwrap();
+        stream.write_all(b"PONG").unwrap();
     }
 }
