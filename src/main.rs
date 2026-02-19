@@ -6,8 +6,6 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::main]
 async fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
 
     let listener = match TcpListener::bind("127.0.0.1:6379").await {
         Ok(listener) => listener,
@@ -75,7 +73,6 @@ async fn handle_stream(mut stream: TcpStream) {
             }
         }
         let n = stream.read_exact(&mut byte).await;
-        println!("current buf {}", bytes_to_string(&buf.iter().flatten().cloned().collect::<Vec<_>>()));
         match n {
             Ok(n) => {
                 if byte[0] == b'*' {
@@ -85,12 +82,10 @@ async fn handle_stream(mut stream: TcpStream) {
                     continue;
                 }
                 if current_step == Some(ParseStep::Parse) {
-                    println!("reached parse step ")
                 }
                 match current_step {
 
                     Some(ParseStep::Star) => {
-                        println!("in star");
                         current.push(byte[0]);
 
                         if current.ends_with(b"\r\n") {
@@ -99,7 +94,6 @@ async fn handle_stream(mut stream: TcpStream) {
                                     arg_count = n;
                                     current.clear();
                                     current_step = Some(ParseStep::ArgCount);
-                                    println!("Arg count: {}", arg_count);
                                 }
                                 None => {
                                     buf.clear();
@@ -112,21 +106,18 @@ async fn handle_stream(mut stream: TcpStream) {
                     Some(ParseStep::ArgCount) => match byte[0]{
 
                         b'$' => {
-                            println!("in arg count");
 
                             current_step = Some(ParseStep::ArgLength);
 
                             current.clear();
                         },
                         b'+' => {
-                            println!("in arg count");
 
                             current_step = Some(ParseStep::SimpleString);
 
                             current.clear();
                         },
                         _ => {
-                            println!("in arg count clear");
 
                             buf.clear();
                             current.clear();
@@ -134,7 +125,6 @@ async fn handle_stream(mut stream: TcpStream) {
                         }
                     },
                     Some(ParseStep::SimpleString) => {
-                        println!("in simple string");
 
                         if current.ends_with(b"\r\n") {
                             buf.push(current[..current.len() - 2].to_vec());
@@ -146,7 +136,6 @@ async fn handle_stream(mut stream: TcpStream) {
                         }
                     }
                     Some(ParseStep::ArgLength) => {
-                        println!("arg length");
                         current.push(byte[0]);
 
                         if current.ends_with(b"\r\n") {
@@ -173,14 +162,11 @@ async fn handle_stream(mut stream: TcpStream) {
 
                         if current.len() == n+2{
                             if current.ends_with(b"\r\n"){
-                                println!("found {}", bytes_to_string(&current));
                                 buf.push(current[..current.len() - 2].to_vec());
                                 args_read+=1;
                                 current.clear();
-                                println!("arg count: {}", arg_count);
-                                println!("arg len: {}", args_read);
+                            
                                 if args_read == arg_count {
-                                    println!("setting parse: {}", arg_count);
                                     current_step = Some(ParseStep::Parse);
 
                                 }else{
@@ -204,13 +190,11 @@ async fn handle_stream(mut stream: TcpStream) {
 
                     }
                     None => {
-                        println!("in none");
 
                     }
                 }
             }
             Err(e) => {
-                println!("in error");
 
                 break;
             }
