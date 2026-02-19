@@ -166,6 +166,11 @@ async fn pop_list(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mute
                             .map(|v| v.as_slice())
                             .collect();
                         write_array(stream, response_refs).await;
+                        {
+                            let mut v = values.lock().await;
+                            v.insert(message[0].clone(), KeyValue{expiry: None, value: ValueType::List(l)});
+
+                        }
                         return;
                     }
 
