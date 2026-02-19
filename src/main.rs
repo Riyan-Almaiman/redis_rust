@@ -150,6 +150,11 @@ async fn pop_list(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mute
                 ValueType::List(mut l) => {
                     if let Some(element) = l.pop_front() {
                         let header = format!("${}\r\n", element.len());
+                        {
+                            let mut v = values.lock().await;
+                            v.insert(message[0].clone(), KeyValue{expiry: None, value: ValueType::List(l)});
+
+                        }
                         let _ = stream.write_all(header.as_bytes()).await;
                         let _ = stream.write_all(&element).await;
                         let _ = stream.write_all(b"\r\n").await;
