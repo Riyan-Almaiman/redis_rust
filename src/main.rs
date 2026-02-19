@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -34,7 +34,7 @@ enum ParseStep {
 
 enum ValueType {
     String(Vec<u8>),
-    List(Vec<Vec<u8>>),
+    List(VecDeque<Vec<u8>>)
 }
 
 #[derive(Clone)]
@@ -132,8 +132,75 @@ async fn execute_command(
         b"get" => get(stream, &cmds[1..], values).await,
         b"rpush" => list(stream, &cmds[1..], values).await,
         b"lrange" => get_list_range(stream, &cmds[1..], values).await,
+        b"lpush" => lpush(stream, &cmds[1..], values).await,
+
         _ => {}
     }
+}
+async fn lpush(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
+
+
+    let mut expiry = None;
+
+    if message.len() < 2 {
+        return;
+    }
+    let get_value = {
+        let db = values.lock().await;
+        db.get(&message[0]).cloned()
+    };
+    let mut value = match get_value {
+        Some(value) => value,
+        None => {
+            let mut new_list: VecDeque<Vec<u8>> = VecDeque::new();
+            for (i, m) in message.iter().enumerate(){
+                if i!=0{
+                    new_list.push_front(message[i].clone())
+                }
+            }
+
+
+            let response = format!(":{}\r\n", new_list.len() );
+
+            let value = KeyValue {
+                value: ValueType::List(new_list),
+                expiry,
+            };
+
+            {
+                let mut v = values.lock().await;
+                v.insert(message[0].clone(), value.clone());
+
+            }
+            if stream.write_all(response.as_bytes()).await.is_err() {
+                return;
+            }
+            return;
+        }
+    };
+    let new_list = match value.value {
+        ValueType::List(mut list) => {
+            for (i, m) in message.iter().enumerate(){
+                if i!=0{
+                    list.push_front(message[i].clone());
+                }
+            }
+            list
+        }
+        _=> return
+    };
+    let response = format!(":{}\r\n", new_list.len());
+
+    value.value = ValueType::List(new_list);
+    {
+        let mut v = values.lock().await;
+        v.insert(message[0].clone(),value.clone() );
+    }
+
+    if stream.write_all(response.as_bytes()).await.is_err() {
+        return;
+    }
+
 }
 async fn get_list_range(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
     if message.len() < 3 { return; }
@@ -147,26 +214,28 @@ async fn get_list_range(stream: &mut TcpStream, message: &[Vec<u8>], values: &Ar
     };
 
     if let Some(kv) = get_value {
-        if let ValueType::List(l) = kv.value {
+        if let ValueType::List(mut l) = kv.value {
             let len = l.len() as i64;
 
             let start = if start_raw < 0 { (len + start_raw).max(0) } else { start_raw } as usize;
             let end = if end_raw < 0 { (len + end_raw).max(0) } else { end_raw } as usize;
 
-            let mut response_refs = Vec::new();
+            let slice = l.make_contiguous();
 
-            let end_plus_one = (end + 1).min(l.len());
+            let len = slice.len();
+            let end_plus_one = (end + 1).min(len);
 
-            if start < l.len() && start <= end {
-                for v in &l[start..end_plus_one] {
-                    response_refs.push(v.as_slice());
-                }
+            if start < len && start < end_plus_one {
+                let response_refs: Vec<&[u8]> = slice[start..end_plus_one]
+                    .iter()
+                    .map(|v| v.as_slice())
+                    .collect();
+
+                write_array(stream, response_refs).await;
+            } else {
+                let _ = stream.write_all(b"*0\r\n").await;
             }
-
-            write_array(stream, response_refs).await;
-            return;
-        }
-    }
+    }}
 
     let _ = stream.write_all(b"*0\r\n").await;
 }
@@ -181,9 +250,7 @@ async fn list(
     message: &[Vec<u8>],
     values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>,
 ) {
-    for (i, bytes) in message.iter().enumerate() {
-        let s = String::from_utf8_lossy(bytes);
-    }    let mut expiry = None;
+      let mut expiry = None;
 
     if message.len() < 2 {
         return;
@@ -195,10 +262,10 @@ async fn list(
     let mut value = match get_value {
         Some(value) => value,
         None => {
-            let mut new_list: Vec<Vec<u8>> = Vec::new();
+            let mut new_list: VecDeque<Vec<u8>> = VecDeque::new();
             for (i, m) in message.iter().enumerate(){
                     if i!=0{
-                        new_list.push(message[i].clone());
+                        new_list.push_back(message[i].clone());
                     }
             }
 
@@ -225,7 +292,7 @@ async fn list(
         ValueType::List(mut list) => {
             for (i, m) in message.iter().enumerate(){
                 if i!=0{
-                    list.push(message[i].clone());
+                    list.push_back(message[i].clone());
                 }
             }
             list
