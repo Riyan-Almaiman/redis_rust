@@ -149,10 +149,11 @@ async fn pop_list(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mute
             match v.value {
                 ValueType::List(mut l) => {
                     let mut popped = Vec::new();
-                    let count = message.get(2)
+                    let count = message.get(1)
                         .and_then(|bytes| std::str::from_utf8(bytes).ok())
                         .and_then(|s| s.parse::<usize>().ok())
                         .unwrap_or(1);
+                    println!("{}", count);
                     if count>1{
                     while popped.len() < count {
                         if let Some(element) = l.pop_front() {
@@ -164,8 +165,8 @@ async fn pop_list(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mute
                             .iter()
                             .map(|v| v.as_slice())
                             .collect();
-
                         write_array(stream, response_refs).await;
+                        return;
                     }
 
                     if let Some(element) = l.pop_front() {
