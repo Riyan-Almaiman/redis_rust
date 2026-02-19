@@ -131,8 +131,65 @@ async fn execute_command(
         b"set" => set(stream, &cmds[1..], values).await,
         b"get" => get(stream, &cmds[1..], values).await,
         b"rpush" => list(stream, &cmds[1..], values).await,
+        b"lrange" => get_list_range(stream, &cmds[1..], values).await,
         _ => {}
     }
+}
+async fn get_list_range(   stream: &mut TcpStream,
+                           message: &[Vec<u8>],
+                           values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>){
+    let get_value = {
+        let db = values.lock().await;
+        db.get(&message[0]).cloned()
+    };
+    if message.len() !=3 {
+        return;
+    }
+    let start =  match   vec_to_u64(&*message[1].clone()) {
+        Some(start) => start,
+        None => return,
+    }as usize;
+    let end =  match   vec_to_u64(&*message[2].clone()) {
+        Some(start) => start,
+        None => return,
+    }  as usize +1;
+    match get_value {
+        Some(value) => {
+            match value.value {
+
+                ValueType::List(l)=>{
+                        if l.len() < start as usize{
+                            if stream.write_all(b"*0\r\n").await.is_err() {
+                                return;
+                            }
+                        }
+                    let mut response = Vec::new();
+                    for (i, v) in l[start..end.min(l.len())].iter().enumerate() {
+                            response.push(v.clone());
+                        }
+                    let response_refs: Vec<&[u8]> = response.iter()
+                        .map(|v| v.as_slice())
+                        .collect();
+                    write_array(stream, response_refs).await;
+                },
+                _ => if stream.write_all(b"*0\r\n").await.is_err() {
+                return;
+            },
+            }
+        }
+        None => {
+            if stream.write_all(b"*0\r\n").await.is_err() {
+                return;
+            }
+        }
+    }
+
+}
+fn vec_to_u64(bytes: &[u8]) -> Option<u64> {
+    std::str::from_utf8(bytes)
+        .ok()?
+        .parse::<u64>()
+        .ok()
 }
 async fn list(
     stream: &mut TcpStream,
@@ -305,6 +362,17 @@ async fn write_echo(stream: &mut TcpStream, message: &[u8]) {
     out.extend_from_slice(message);
     out.extend_from_slice(b"\r\n");
     let _ = stream.write_all(&out).await;
+}
+async fn write_array( stream: &mut TcpStream,message: Vec<&[u8]>) {
+    let mut response = format!("*{}\r\n", message.len()).into_bytes();
+    for m in message {
+        let mut r = format!("${}\r\n", m.len()).into_bytes();
+        r.extend_from_slice(m);
+        r.extend_from_slice(b"\r\n");
+        response.extend_from_slice(&r);
+    }
+    let _ = stream.write_all(&response).await;
+
 }
 
 fn bytes_to_string(bytes: &[u8]) -> String {
