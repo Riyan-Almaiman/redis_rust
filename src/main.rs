@@ -42,7 +42,7 @@ struct KeyValue {
     expiry: Option<SystemTime>,
     value: ValueType,
 }
-async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
+async fn handle_stream(mut stream: TcpStream,  values: Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
     let mut read_buffer: Vec<u8> = Vec::new();
     let mut temp = [0u8; 1024];
     let mut current_step: Option<ParseStep> = None;
@@ -59,7 +59,7 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
         read_buffer.extend_from_slice(&temp[..n]);
         while !read_buffer.is_empty() {
             if read_buffer[0] != b'*' {
-                read_buffer.drain(..1);
+                read_buffer.remove(0);
                 continue;
             }
 
@@ -68,7 +68,7 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
                     execute_command(&mut stream, &cmd, &values).await;
                     read_buffer.drain(..consumed);
                 }
-                None => break, // incomplete frame
+                None => break,
             }
         }
     }
@@ -78,8 +78,8 @@ fn try_parse_command(buf: &[u8]) -> Option<(Vec<Vec<u8>>, usize)> {
         return None;
     }
 
-    let (arg_count, mut offset) = parse_number(&buf[1..])?;
-
+    let (arg_count, num_len) = parse_number(&buf[1..])?;
+    let mut offset = 1 + num_len;
     let mut args = Vec::new();
     if arg_count == 0 {
         return None;
@@ -141,7 +141,6 @@ async fn list(
 ) {
     for (i, bytes) in message.iter().enumerate() {
         let s = String::from_utf8_lossy(bytes);
-        println!("Arg {}: {}", i, s);
     }    let mut expiry = None;
 
     if message.len() < 2 {
