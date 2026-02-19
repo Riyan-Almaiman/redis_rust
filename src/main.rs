@@ -154,6 +154,11 @@ async fn list(
         Some(value) => value,
         None => {
             let mut new_list: Vec<Vec<u8>> = Vec::new();
+            for (i, m) in message.iter().enumerate(){
+                    if i!=0{
+                        new_list.push(message[i].clone());
+                    }
+            }
             new_list.push(message[1].clone().to_vec());
             let value = KeyValue {
                 value: ValueType::List(new_list),
@@ -173,7 +178,11 @@ async fn list(
     };
     let new_list = match value.value {
         ValueType::List(mut list) => {
-            list.push(message[1].clone().to_vec());
+            for (i, m) in message.iter().enumerate(){
+                if i!=0{
+                    list.push(message[i].clone());
+                }
+            }
             list
         }
         _=> return
