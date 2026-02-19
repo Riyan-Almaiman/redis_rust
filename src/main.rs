@@ -139,7 +139,10 @@ async fn list(
     message: &[Vec<u8>],
     values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>,
 ) {
-    let mut expiry = None;
+    for (i, bytes) in message.iter().enumerate() {
+        let s = String::from_utf8_lossy(bytes);
+        println!("Arg {}: {}", i, s);
+    }    let mut expiry = None;
 
     if message.len() < 2 {
         return;
