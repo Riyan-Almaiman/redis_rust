@@ -133,8 +133,40 @@ async fn execute_command(
         b"rpush" => list(stream, &cmds[1..], values).await,
         b"lrange" => get_list_range(stream, &cmds[1..], values).await,
         b"lpush" => lpush(stream, &cmds[1..], values).await,
-
+        b"llen" => get_list_count(stream, &cmds[1..], values).await,
         _ => {}
+    }
+}
+async fn get_list_count(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
+    let get_value = {
+        let db = values.lock().await;
+        db.get(&message[0]).cloned()
+    };
+    match get_value{
+        Some(v) => {
+            match v.value {
+                ValueType::List(l) => {
+                    if stream.write_all(format!(":{}\r\n", l.len()).as_bytes()).await.is_err() {
+                        return;
+                    }
+                    return;
+                },
+                _ => {
+                    if stream.write_all(format!(":{}\r\n", 0).as_bytes()).await.is_err() {
+                        return;
+                    }
+                    return;
+                }
+
+                }
+        }
+        None => {
+            if stream.write_all(format!(":{}\r\n", 0).as_bytes()).await.is_err() {
+                return;
+            }
+            return;
+
+        }
     }
 }
 async fn lpush(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
@@ -232,7 +264,7 @@ async fn get_list_range(stream: &mut TcpStream, message: &[Vec<u8>], values: &Ar
                     .collect();
 
                 write_array(stream, response_refs).await;
-                return; 
+                return;
             }
         }
     }
