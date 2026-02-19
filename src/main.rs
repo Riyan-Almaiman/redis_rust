@@ -134,7 +134,49 @@ async fn execute_command(
         b"lrange" => get_list_range(stream, &cmds[1..], values).await,
         b"lpush" => lpush(stream, &cmds[1..], values).await,
         b"llen" => get_list_count(stream, &cmds[1..], values).await,
+        b"lpop" => pop_list(stream, &cmds[1..], values).await,
+
         _ => {}
+    }
+}
+async fn pop_list(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
+    let get_value = {
+        let db = values.lock().await;
+        db.get(&message[0]).cloned()
+    };
+    match get_value{
+        Some(v) => {
+            match v.value {
+                ValueType::List(mut l) => {
+                    if let Some(element) = l.pop_front() {
+                        let header = format!("${}\r\n", element.len());
+                        let _ = stream.write_all(header.as_bytes()).await;
+                        let _ = stream.write_all(&element).await;
+                        let _ = stream.write_all(b"\r\n").await;
+                    } else {
+                        // List is empty
+                       if stream.write_all(b"$-1\r\n").await.is_err() {
+                           return;
+                       }
+                    }
+                    return;
+                },
+                _ => {
+                    if stream.write_all(b"$-1\r\n").await.is_err() {
+                        return;
+                    }
+                    return;
+                }
+
+            }
+        }
+        None => {
+            if stream.write_all(b"$-1\r\n").await.is_err() {
+                return;
+            }
+            return;
+
+        }
     }
 }
 async fn get_list_count(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
