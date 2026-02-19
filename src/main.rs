@@ -203,7 +203,7 @@ async fn set(
         let number: i32 = num_str.parse().expect("Failed to parse integer");
         match time_type {
             "EX" => expiry = time_now.checked_add(Duration::from_secs(number as u64)) ,
-            "PX" => expiry = time_now.checked_sub(Duration::from_millis(number as u64)) ,
+            "PX" => expiry = time_now.checked_add(Duration::from_millis(number as u64)) ,
             _ => {}
         }
     }
