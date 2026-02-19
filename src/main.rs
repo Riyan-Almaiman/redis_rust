@@ -221,21 +221,21 @@ async fn get_list_range(stream: &mut TcpStream, message: &[Vec<u8>], values: &Ar
             let end = if end_raw < 0 { (len + end_raw).max(0) } else { end_raw } as usize;
 
             let slice = l.make_contiguous();
+            let slice_len = slice.len();
 
-            let len = slice.len();
-            let end_plus_one = (end + 1).min(len);
+            let end_plus_one = (end + 1).min(slice_len);
 
-            if start < len && start < end_plus_one {
+            if start < slice_len && start < end_plus_one {
                 let response_refs: Vec<&[u8]> = slice[start..end_plus_one]
                     .iter()
                     .map(|v| v.as_slice())
                     .collect();
 
                 write_array(stream, response_refs).await;
-            } else {
-                let _ = stream.write_all(b"*0\r\n").await;
+                return; 
             }
-    }}
+        }
+    }
 
     let _ = stream.write_all(b"*0\r\n").await;
 }
