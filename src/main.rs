@@ -1,23 +1,23 @@
 #![allow(unused_imports)]
 
-use std::collections::{HashMap, HashSet};
-use std::fmt::format;
-use std::sync::{Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{ Mutex};
+use tokio::sync::Mutex;
 #[tokio::main]
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379")
         .await
         .expect("Failed to bind");
-    let  db: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let db: Arc<Mutex<HashMap<Vec<u8>, KeyValue>>> = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         let (stream, _) = listener.accept().await.expect("Accept failed");
         let db_copy = Arc::clone(&db);
         tokio::spawn(async move {
-            handle_stream( stream, db_copy).await;
+            handle_stream(stream, db_copy).await;
         });
     }
 }
@@ -30,11 +30,11 @@ enum ParseStep {
     ArgLength,
     Arg(usize),
 }
-struct KeyValuePair{
-    key: String,
-    value: String,
+struct KeyValue {
+    expiry: Option<SystemTime>,
+    value: Vec<u8>,
 }
-async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>) {
+async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
     let mut read_buffer: Vec<u8> = Vec::new();
     let mut temp = [0u8; 1024];
     let mut current_step: Option<ParseStep> = None;
@@ -82,24 +82,22 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
                     }
                 }
 
-                Some(ParseStep::ArgCount) => {
-                    match ch {
-                        b'$' => {
-                            current_step = Some(ParseStep::ArgLength);
-                            current.clear();
-                            i += 1;
-                        }
-                        b'+' => {
-                            current_step = Some(ParseStep::SimpleString);
-                            current.clear();
-                            i += 1;
-                        }
-                        _ => {
-                            reset(&mut current_step, &mut current, &mut current_cmd);
-                            i += 1;
-                        }
+                Some(ParseStep::ArgCount) => match ch {
+                    b'$' => {
+                        current_step = Some(ParseStep::ArgLength);
+                        current.clear();
+                        i += 1;
                     }
-                }
+                    b'+' => {
+                        current_step = Some(ParseStep::SimpleString);
+                        current.clear();
+                        i += 1;
+                    }
+                    _ => {
+                        reset(&mut current_step, &mut current, &mut current_cmd);
+                        i += 1;
+                    }
+                },
 
                 Some(ParseStep::SimpleString) => {
                     current.push(ch);
@@ -111,7 +109,7 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
                         args_read += 1;
 
                         if args_read == arg_count {
-                            execute_command( &mut stream, &current_cmd,  &mut values).await;
+                            execute_command(&mut stream, &current_cmd, &mut values).await;
                             reset(&mut current_step, &mut current, &mut current_cmd);
                             args_read = 0;
                         } else {
@@ -145,7 +143,7 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
                             args_read += 1;
 
                             if args_read == arg_count {
-                                execute_command( &mut stream, &current_cmd, &mut values).await;
+                                execute_command(&mut stream, &current_cmd, &mut values).await;
                                 reset(&mut current_step, &mut current, &mut current_cmd);
                                 args_read = 0;
                             } else {
@@ -167,17 +165,17 @@ async fn handle_stream(mut stream: TcpStream, mut values: Arc<Mutex<HashMap<Vec<
     }
 }
 
-fn reset(
-    step: &mut Option<ParseStep>,
-    current: &mut Vec<u8>,
-    cmd: &mut Vec<Vec<u8>>,
-) {
+fn reset(step: &mut Option<ParseStep>, current: &mut Vec<u8>, cmd: &mut Vec<Vec<u8>>) {
     *step = None;
     current.clear();
     cmd.clear();
 }
 
-async fn execute_command(stream: &mut TcpStream, cmds: &Vec<Vec<u8>>, values: &mut Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>) {
+async fn execute_command(
+    stream: &mut TcpStream,
+    cmds: &Vec<Vec<u8>>,
+    values: &mut Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>,
+) {
     match bytes_to_string(&cmds[0]).to_ascii_lowercase().as_str() {
         "echo" => write_echo(stream, &cmds[1]).await,
         "ping" => ping(stream).await,
@@ -187,27 +185,68 @@ async fn execute_command(stream: &mut TcpStream, cmds: &Vec<Vec<u8>>, values: &m
         _ => {}
     }
 }
-async  fn set (stream: &mut TcpStream, message: &[Vec<u8>], values: &mut Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>) {
-    if message.len() != 2 {
+async fn set(
+    stream: &mut TcpStream,
+    message: &[Vec<u8>],
+    values: &mut Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>,
+) {
+    if message.len() < 2 {
         return;
     }
-    let mut v =  values.lock().await;
-
-            v.insert(message[0].clone(), message[1].clone());
-            stream.write_all("+OK\r\n".to_string().as_bytes()).await.unwrap();
-
-
-      
-
+    let mut v = values.lock().await;
+    let time_now = SystemTime::now();
+    let mut expiry = None;
+    if message.len() == 4 {
+        let time_value = message.get(3).unwrap();
+        let time_type = std::str::from_utf8(message.get(2).unwrap()).unwrap();
+        let num_str: &str = std::str::from_utf8(time_value).expect("Invalid UTF-8 sequence");
+        let number: i32 = num_str.parse().expect("Failed to parse integer");
+        match time_type {
+            "EX" => expiry = time_now.checked_add(Duration::from_secs(number as u64)) ,
+            "PX" => expiry = time_now.checked_sub(Duration::from_millis(number as u64)) ,
+            _ => {}
+        }
+    }
+    let value = KeyValue {
+        value: message[1].clone(),
+        expiry
+    };
+    v.insert(message[0].clone(), value);
+    stream
+        .write_all("+OK\r\n".to_string().as_bytes())
+        .await
+        .unwrap();
 }
-async  fn get (stream: &mut TcpStream, message: &[Vec<u8>], values: &mut Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>) {
-    let mut v =  values.lock().await;
-     
-            let value =  v.get(&message[0]);
-            match value {
-                Some(val) => write_echo(stream, val).await,
-                None => { stream.write_all("$-1\r\n".to_string().as_bytes()).await.unwrap(); }
+async fn get(
+    stream: &mut TcpStream,
+    message: &[Vec<u8>],
+    values: &mut Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>,
+) {
+    let mut v = values.lock().await;
+
+    let value = v.get(&message[0]);
+    match value {
+        Some(val) => match val.expiry {
+            Some(expiry) => {
+                if expiry < SystemTime::now() {
+                    stream
+                        .write_all("$-1\r\n".to_string().as_bytes())
+                        .await
+                        .unwrap();
+                }
+                else{
+                    write_echo(stream, &*val.value).await
+                }
             }
+            None => write_echo(stream, &*val.value).await
+        } ,
+        None => {
+            stream
+                .write_all("$-1\r\n".to_string().as_bytes())
+                .await
+                .unwrap();
+        }
+    }
 }
 fn parse_number(data: &[u8]) -> Option<i32> {
     std::str::from_utf8(data).ok()?.parse().ok()
