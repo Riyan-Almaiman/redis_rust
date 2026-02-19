@@ -135,55 +135,40 @@ async fn execute_command(
         _ => {}
     }
 }
-async fn get_list_range(   stream: &mut TcpStream,
-                           message: &[Vec<u8>],
-                           values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>){
+async fn get_list_range(stream: &mut TcpStream, message: &[Vec<u8>], values: &Arc<Mutex<HashMap<Vec<u8>, KeyValue>>>) {
+    if message.len() < 3 { return; }
+
+    let start_raw = std::str::from_utf8(&message[1]).ok().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+    let end_raw = std::str::from_utf8(&message[2]).ok().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+
     let get_value = {
         let db = values.lock().await;
         db.get(&message[0]).cloned()
     };
-    if message.len() !=3 {
-        return;
-    }
-    let start =  match   vec_to_u64(&*message[1].clone()) {
-        Some(start) => start,
-        None => return,
-    }as usize;
-    let end =  match   vec_to_u64(&*message[2].clone()) {
-        Some(start) => start,
-        None => return,
-    }  as usize +1;
-    match get_value {
-        Some(value) => {
-            match value.value {
 
-                ValueType::List(l)=>{
-                        if l.len() < start as usize{
-                            if stream.write_all(b"*0\r\n").await.is_err() {
-                                return;
-                            }
-                        }
-                    let mut response = Vec::new();
-                    for (i, v) in l[start..end.min(l.len())].iter().enumerate() {
-                            response.push(v.clone());
-                        }
-                    let response_refs: Vec<&[u8]> = response.iter()
-                        .map(|v| v.as_slice())
-                        .collect();
-                    write_array(stream, response_refs).await;
-                },
-                _ => if stream.write_all(b"*0\r\n").await.is_err() {
-                return;
-            },
+    if let Some(kv) = get_value {
+        if let ValueType::List(l) = kv.value {
+            let len = l.len() as i64;
+
+            let start = if start_raw < 0 { (len + start_raw).max(0) } else { start_raw } as usize;
+            let end = if end_raw < 0 { (len + end_raw).max(0) } else { end_raw } as usize;
+
+            let mut response_refs = Vec::new();
+
+            let end_plus_one = (end + 1).min(l.len());
+
+            if start < l.len() && start <= end {
+                for v in &l[start..end_plus_one] {
+                    response_refs.push(v.as_slice());
+                }
             }
-        }
-        None => {
-            if stream.write_all(b"*0\r\n").await.is_err() {
-                return;
-            }
+
+            write_array(stream, response_refs).await;
+            return;
         }
     }
 
+    let _ = stream.write_all(b"*0\r\n").await;
 }
 fn vec_to_u64(bytes: &[u8]) -> Option<u64> {
     std::str::from_utf8(bytes)
