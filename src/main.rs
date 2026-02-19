@@ -159,17 +159,20 @@ async fn list(
                         new_list.push(message[i].clone());
                     }
             }
-            new_list.push(message[1].clone().to_vec());
+
+
+            let response = format!(":{}\r\n", new_list.len() );
+
             let value = KeyValue {
                 value: ValueType::List(new_list),
                 expiry,
             };
+
             {
                 let mut v = values.lock().await;
                 v.insert(message[0].clone(), value.clone());
 
             }
-            let response = format!(":{}\r\n", 1);
             if stream.write_all(response.as_bytes()).await.is_err() {
                 return;
             }
