@@ -1,23 +1,24 @@
 use crate::resp::Resp;
 use crate::resp::Resp::Integer;
 use crate::RedisCommand;
+use indexmap::IndexMap;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
-
 #[derive(Debug)]
 
 pub struct Lists {
     lists: HashMap<String, List>,
-    pub blocking_clients: HashMap<String, HashMap<Uuid, BlockingClient>>,
+    pub blocking_clients: HashMap<String, IndexMap<Uuid, BlockingClient>>,
     pub sender: mpsc::Sender<Client>,
     pub receiver: mpsc::Receiver<Client>,
 }
 #[derive(Debug)]
 
 pub struct List {
+    key: String,
     list: VecDeque<Vec<u8>>,
 }
 
@@ -58,9 +59,7 @@ impl Lists {
 
             let r = match request.command {
                 RedisCommand::RPush { elements, key } => self.rpush(key, elements),
-                RedisCommand::LRange { key, start, stop } => {
-                    self.get_list_range(key, start, stop)
-                }
+                RedisCommand::LRange { key, start, stop } => self.get_list_range(key, start, stop),
                 RedisCommand::LPop { key, count } => self.lpop(&key, count),
                 RedisCommand::LLen(key) => self.llen(&key),
                 RedisCommand::LPush { key, elements } => self.lpush(&key, elements),
@@ -69,8 +68,11 @@ impl Lists {
                 }
                 RedisCommand::InternalTimeoutCleanup { key, client_id } => {
                     if let Some(clients) = self.blocking_clients.get_mut(&key) {
-                        if let Some(expired_client) = clients.remove(&client_id) {
-                             expired_client.response_tx.send(Resp::NullBulkString).expect("failed to send response");
+                        if let Some(expired_client) = clients.shift_remove(&client_id) {
+                            expired_client
+                                .response_tx
+                                .send(Resp::NullBulkString)
+                                .expect("failed to send response");
                         }
                     };
                     CommandOutcome::Done(Resp::NullBulkString)
@@ -97,8 +99,7 @@ impl Lists {
             match list {
                 Ok(list) => {
                     if !list.list.is_empty() {
-                         self.lpop(key, 1);
-
+                        self.lpop(key, 1);
                     }
                 }
                 Err(_) => {}
@@ -111,15 +112,17 @@ impl Lists {
             let key_clone = key_str.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(timeout)).await;
-                let _ = sender_clone.send(Client {
-                    client_id: id,
-                    timeout: None,
-                    response_tx: oneshot::channel().0,
-                    command: RedisCommand::InternalTimeoutCleanup {
-                        key: key_clone,
+                let _ = sender_clone
+                    .send(Client {
                         client_id: id,
-                    },
-                }).await;
+                        timeout: None,
+                        response_tx: oneshot::channel().0,
+                        command: RedisCommand::InternalTimeoutCleanup {
+                            key: key_clone,
+                            client_id: id,
+                        },
+                    })
+                    .await;
             });
         }
         let client = BlockingClient {
@@ -131,25 +134,34 @@ impl Lists {
 
         self.blocking_clients
             .entry(key_str)
-            .or_insert(HashMap::from([(id, client)]));
+            .or_insert(IndexMap::from([(id, client)]));
         CommandOutcome::Blocked
     }
 
-    fn rpush(
-        &mut self,
-        key: Vec<u8>,
-        elements: Vec<Vec<u8>>,
-    ) -> CommandOutcome {
-        let list_entry = match self.get_or_create_list(&key) {
-            Ok(v) => v,
-            Err(e) => {
-
-                return CommandOutcome::Done(Resp::Error(e.as_bytes().to_vec()));
-            }
+    fn rpush(&mut self, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandOutcome {
+        let key = match std::str::from_utf8(&key) {
+            Ok(v) => v.to_string(),
+            Err(e) => return CommandOutcome::Done(Resp::Error(e.to_string().as_bytes().to_vec())),
         };
 
-        for element in elements {
-            list_entry.list.push_back(element);
+        let list_entry = self.lists.entry(key.clone()).or_insert(List {
+            key,
+            list: VecDeque::new(),
+        });
+
+        if let Some(clients) = self.blocking_clients.get_mut(&list_entry.key) {
+            for element in elements {
+                if let Some(blocked_client) = clients.pop() {
+
+                    let _ = blocked_client.1.response_tx.send(Resp::BulkString(element));
+                } else {
+                    list_entry.list.push_back(element);
+                }
+            }
+        } else {
+            for element in elements {
+                list_entry.list.push_back(element);
+            }
         }
 
 
@@ -160,23 +172,20 @@ impl Lists {
         let key_str = match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(_) => {
-
                 return CommandOutcome::Done(Resp::Error(
                     "Invalid UTF-8 key".to_string().as_bytes().to_vec(),
-                ))
+                ));
             }
         };
 
         let list_entry = match self.lists.get_mut(&key_str) {
             Some(l) => l,
             None => {
-
                 return CommandOutcome::Done(Resp::NullBulkString);
             }
         };
 
         if list_entry.list.is_empty() {
-
             return CommandOutcome::Done(Resp::NullBulkString);
         }
 
@@ -190,13 +199,10 @@ impl Lists {
         }
 
         if popped.len() == 1 && count == 1 {
-
             return CommandOutcome::Done(popped.pop().unwrap());
         } else if popped.is_empty() {
-
             return CommandOutcome::Done(Resp::NullArray);
         } else {
-
             return CommandOutcome::Done(Resp::Array(popped));
         }
     }
@@ -227,20 +233,15 @@ impl Lists {
             Err(e) => return Err(e.to_string()),
         };
 
-        Ok(self.lists.entry(key).or_insert(List {
+        Ok(self.lists.entry(key.clone()).or_insert(List {
+            key,
             list: VecDeque::new(),
         }))
     }
-    fn get_list_range(
-        &self,
-        key: Vec<u8>,
-        start_raw: i64,
-        end_raw: i64
-    ) -> CommandOutcome {
+    fn get_list_range(&self, key: Vec<u8>, start_raw: i64, end_raw: i64) -> CommandOutcome {
         let list_entry = match self.get_list(&key) {
             Ok(l) => l,
             Err(_) => {
-
                 return CommandOutcome::Done(Resp::Array(Vec::new()));
             }
         };
@@ -248,7 +249,6 @@ impl Lists {
         let len = list_entry.list.len() as i64;
 
         if len == 0 {
-
             return CommandOutcome::Done(Resp::Array(Vec::new()));
         }
 
@@ -265,7 +265,6 @@ impl Lists {
         };
 
         if start > end || start >= len {
-
             return CommandOutcome::Done(Resp::Array(Vec::new()));
         }
 
@@ -282,15 +281,10 @@ impl Lists {
 
         return CommandOutcome::Done(Resp::Array(items));
     }
-    fn lpush(
-        &mut self,
-        key: &Vec<u8>,
-        elements: Vec<Vec<u8>>,
-    ) -> CommandOutcome {
+    fn lpush(&mut self, key: &Vec<u8>, elements: Vec<Vec<u8>>) -> CommandOutcome {
         let list = match self.get_or_create_list(key) {
             Ok(l) => l,
             Err(e) => {
-
                 return CommandOutcome::Done(Resp::Error(e.as_bytes().to_vec()));
             }
         };
