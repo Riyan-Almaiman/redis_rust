@@ -39,7 +39,11 @@ pub struct Client {
 }
 enum CommandOutcome {
     Done(Resp),
-    Blocked,
+    Blocked{
+        keys: Vec<Vec<u8>>,
+        timeout: u64,
+        id: Uuid,
+    },
 }
 
 impl Lists {
@@ -64,7 +68,7 @@ impl Lists {
                 RedisCommand::LLen(key) => self.llen(&key),
                 RedisCommand::LPush { key, elements } => self.lpush(&key, elements),
                 RedisCommand::BLPop { keys, timeout } => {
-                    self.blpop(&keys, timeout, request.client_id, response_tx)
+                    self.blpop(&keys, timeout, request.client_id)
                 }
                 RedisCommand::InternalTimeoutCleanup { key, client_id } => {
                     if let Some(clients) = self.blocking_clients.get_mut(&key) {
@@ -79,12 +83,19 @@ impl Lists {
                 }
 
                 _ => {
-                    response_tx
-                        .send(Resp::NullArray)
-                        .expect("Could not send response");
+
                     CommandOutcome::Done(Resp::NullArray)
                 }
             };
+            match r {
+                 CommandOutcome::Done(resp) => {
+                     response_tx.send(resp).expect("Could not send response");
+                 }
+                CommandOutcome::Blocked{keys, timeout, id} => {
+                    self.create_blocking_client(&keys, timeout, id, response_tx)
+                }
+            }
+
         }
     }
     fn blpop(
@@ -92,19 +103,41 @@ impl Lists {
         keys: &Vec<Vec<u8>>,
         timeout: u64,
         id: Uuid,
-        response_tx: Sender<Resp>,
     ) -> CommandOutcome {
         for key in keys {
             let list = self.get_list(&key);
             match list {
                 Ok(list) => {
                     if !list.list.is_empty() {
-                        self.lpop(key, 1);
+                        match self.lpop(key, 1) {
+                            CommandOutcome::Done(resp) => {
+                                return CommandOutcome::Done(resp)
+                            }
+                            CommandOutcome::Blocked{keys, timeout, id} => {
+
+                            }
+                        }
                     }
                 }
                 Err(_) => {}
             }
         }
+
+
+        CommandOutcome::Blocked {
+            keys: keys.clone(),
+            timeout: timeout.clone(),
+            id: id.clone(),
+        }
+    }
+    fn create_blocking_client(
+        &mut self,
+        keys: &Vec<Vec<u8>>,
+        timeout: u64,
+        id: Uuid,
+        response_tx: Sender<Resp>,
+    )  {
+
 
         let key_str = String::from_utf8_lossy(keys[0].as_slice()).to_string();
         let sender_clone = self.sender.clone();
@@ -134,10 +167,9 @@ impl Lists {
 
         self.blocking_clients
             .entry(key_str)
-            .or_insert(IndexMap::from([(id, client)]));
-        CommandOutcome::Blocked
+            .or_default() 
+            .insert(id, client);
     }
-
     fn rpush(&mut self, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandOutcome {
         let key = match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
@@ -151,7 +183,7 @@ impl Lists {
 
         if let Some(clients) = self.blocking_clients.get_mut(&list_entry.key) {
             for element in elements {
-                if let Some(blocked_client) = clients.pop() {
+                if let Some(blocked_client) = clients.shift_remove_index(0) {
 
                     let _ = blocked_client.1.response_tx.send(Resp::BulkString(element));
                 } else {
