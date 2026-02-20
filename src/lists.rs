@@ -171,13 +171,13 @@ impl Lists {
             .insert(id, client);
     }
     fn rpush(&mut self, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandOutcome {
-        let key = match std::str::from_utf8(&key) {
+        let key_str = match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(e) => return CommandOutcome::Done(Resp::Error(e.to_string().as_bytes().to_vec())),
         };
 
-        let list_entry = self.lists.entry(key.clone()).or_insert(List {
-            key,
+        let list_entry = self.lists.entry(key_str.clone()).or_insert(List {
+            key: key_str,
             list: VecDeque::new(),
         });
         let mut blocked_consumed_count = 0;
@@ -186,7 +186,7 @@ impl Lists {
             for element in elements {
                 if let Some(blocked_client) = clients.shift_remove_index(0) {
 
-                    let _ = blocked_client.1.response_tx.send(Resp::BulkString(element));
+                    let _ = blocked_client.1.response_tx.send(Resp::Array(vec![Resp::BulkString(key.clone()), Resp::BulkString(element.clone()) ]));
                     blocked_consumed_count += 1;
                 } else {
                     list_entry.list.push_back(element);
