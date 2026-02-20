@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub enum RedisCommand {
     Ping,
     Echo(Vec<u8>),
@@ -33,6 +34,9 @@ pub enum RedisCommand {
         keys: Vec<Vec<u8>>,
         timeout: f64,
     },
+    Type(
+        Vec<u8>)
+
 }
 impl RedisCommand {
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
@@ -47,7 +51,12 @@ impl RedisCommand {
         match command_name.as_str() {
 
 
-
+            "get" => {
+                if cmds.len() < 2 {
+                    return Err("GET requires a key".to_string());
+                }
+                Ok(RedisCommand::Get(cmds[1].clone()))
+            }
 
             "rpush" => {
                 if cmds.len() < 3 {
@@ -58,7 +67,15 @@ impl RedisCommand {
                     elements: cmds[2..].to_vec(),
                 })
             }
-
+            "ping" => Ok(RedisCommand::Ping),
+            "echo" => {
+                if cmds.len() < 2 { return Err("ECHO requires an argument".to_string()); }
+                Ok(RedisCommand::Echo(cmds[1].clone()))
+            },
+            "type" => {
+                if cmds.len() < 2 { return Err("TYPE requires a key".to_string()); }
+                Ok(RedisCommand::Type(cmds[1].clone()))
+            }
             "lpush" => {
                 if cmds.len() < 3 {
                     return Err("LPUSH requires key and at least one element".to_string());
