@@ -8,17 +8,14 @@ mod connection;
 mod lists;
 mod db;
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::Sender;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use uuid::Uuid;
+
 use crate::commands::RedisCommand;
-use crate::db::{ DB};
-use crate::lists::{Client, List};
+use crate::db::DB;
+use crate::db::Client;
 use crate::parser::Parser;
 use crate::resp::Resp;
 
@@ -43,66 +40,35 @@ async fn main() {
     }
 }
 
-
-enum ValueType {
-    String(Vec<u8>),
-    List(List),
-    Set,
-    ZSet,
-    Hash,
-    Stream,
-    VectorSet
-}
-
-struct KeyValue {
-    expiry: Option<SystemTime>,
-    value: ValueType,
-}
-
-
-async fn handle_stream(mut connection: TcpStream, connection_tx: Sender<Client>, uuid: Uuid) {
+// main.rs
+async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
-    let mut temp = [0u8; 1024];
-    loop {
+    let mut buffer = [0u8; 1024];
 
-        let n = match connection.read(&mut temp).await {
+    loop {
+        let n = match connection.read(&mut buffer).await {
             Ok(0) => return,
             Ok(n) => n,
             Err(_) => return,
         };
 
-        parser.read_buffer.extend(&temp[..n]);
-        let cmd =parser.parse();
-        if let Some(Resp::Array(elements)) = &cmd {
-            let readable: Vec<String> = elements.iter().map(|el| {
-                match el {
-                    Resp::BulkString(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-                    _ => format!("{:?}", el),
-                }
-            }).collect();
+        parser.read_buffer.extend_from_slice(&buffer[..n]);
 
-        }
-        match cmd {
-            Some(cmd) => match cmd{
-                Resp::Array( arr) => {
-                    let mut cmds : Vec<Vec<u8>> = Vec::new();
-                    for cmd in arr {
-                        cmds.push(Resp::get_bytes(&cmd));
-                    }
-                    execute_command(&mut connection, connection_tx.clone(), uuid, &cmds).await
-                }
-                _=> continue,
-            } ,
-            None => continue,
+        while let Some(cmd_resp) = parser.parse() {
+            if let Resp::Array(arr) = cmd_resp {
+                let mut cmds: Vec<Vec<u8>> = arr.iter()
+                    .map(|item| Resp::get_bytes(item))
+                    .collect();
+
+                execute_command(&mut connection, connection_tx.clone(), uuid, &cmds).await;
+            }
         }
     }
 }
 
-
-
 async fn execute_command(
     stream: &mut TcpStream,
-    tx: mpsc::Sender<Client>, // Use the DB sender
+    tx: mpsc::Sender<Client>,
     id: Uuid,
     cmds: &Vec<Vec<u8>>,
 ) {
@@ -118,16 +84,18 @@ async fn execute_command(
                 command: c
             };
 
-            let _ = tx.send(client_req).await;
+            if let Err(_) = tx.send(client_req).await {
+                return;
+            }
 
             if let Ok(response) = resp_rx.await {
                 let bytes = Resp::formate_cmd(&response);
                 let _ = stream.write_all(&bytes).await;
             }
         }
-        Err(_) => {
-            let _ = stream.write_all(b"-ERR unknown command\r\n").await;
+        Err(e) => {
+            let error_msg = format!("-ERR {}\r\n", e);
+            let _ = stream.write_all(error_msg.as_bytes()).await;
         }
     }
 }
-

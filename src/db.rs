@@ -1,19 +1,25 @@
 use crate::commands::RedisCommand;
-use crate::lists::{BlockingClient, Client, List};
+use crate::lists::{BlockingClient, List};
 use crate::resp::Resp;
-use crate::{KeyValue, ValueType};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
-    pub blocking_clients: HashMap<Vec<u8>, IndexMap<Uuid, BlockingClient>>,
     pub receiver: mpsc::Receiver<Client>,
     pub sender: mpsc::Sender<Client>,
 }
+#[derive(Debug)]
+pub struct Client {
+    pub client_id: Uuid,
+    pub timeout: Option<Duration>,
+    pub response_tx: oneshot::Sender<Resp>,
+    pub command: RedisCommand,
+}
+
 #[derive(Debug, Clone)]
 pub enum CommandOutcome {
     Done(Resp),
@@ -23,13 +29,26 @@ pub enum CommandOutcome {
         id: Uuid,
     },
 }
+enum ValueType {
+    String(Vec<u8>),
+    List(List),
+    Set,
+    ZSet,
+    Hash,
+    Stream,
+    VectorSet
+}
+
+struct KeyValue {
+    expiry: Option<SystemTime>,
+    value: ValueType,
+}
 impl DB {
     pub fn new() -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(100);
 
         Self {
             database: HashMap::new(),
-            blocking_clients: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
         }

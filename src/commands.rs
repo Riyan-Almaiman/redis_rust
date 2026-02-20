@@ -1,7 +1,6 @@
 use uuid::Uuid;
 
-#[derive(Debug)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum RedisCommand {
     Ping,
     Echo(Vec<u8>),
@@ -19,7 +18,10 @@ pub enum RedisCommand {
         key: Vec<u8>,
         elements: Vec<Vec<u8>>,
     },
-    InternalTimeoutCleanup { key: String, client_id: Uuid },
+    InternalTimeoutCleanup {
+        key: String,
+        client_id: Uuid,
+    },
     LRange {
         key: Vec<u8>,
         start: i64,
@@ -34,9 +36,7 @@ pub enum RedisCommand {
         keys: Vec<Vec<u8>>,
         timeout: f64,
     },
-    Type(
-        Vec<u8>)
-
+    Type(Vec<u8>),
 }
 impl RedisCommand {
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
@@ -49,7 +49,51 @@ impl RedisCommand {
             .map_err(|_| "Invalid UTF-8 in command")?;
 
         match command_name.as_str() {
+            "set" => {
+                if cmds.len() < 3 {
+                    return Err("SET requires a key and a value".to_string());
+                }
 
+                let mut expiry = None;
+
+                let mut i = 3;
+                while i < cmds.len() {
+                    let arg = std::str::from_utf8(&cmds[i])
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+
+                    match arg.as_str() {
+                        "px" => {
+                            if i + 1 < cmds.len() {
+                                expiry = std::str::from_utf8(&cmds[i + 1])
+                                    .ok()
+                                    .and_then(|s| s.parse::<u64>().ok());
+                                i += 2;
+                            } else {
+                                return Err("SET PX requires a timeout value".to_string());
+                            }
+                        }
+                        "ex" => {
+                            if i + 1 < cmds.len() {
+                                expiry = std::str::from_utf8(&cmds[i + 1])
+                                    .ok()
+                                    .and_then(|s| s.parse::<u64>().ok())
+                                    .map(|secs| secs * 1000);
+                                i += 2;
+                            } else {
+                                return Err("SET EX requires a timeout value".to_string());
+                            }
+                        }
+                        _ => i += 1,
+                    }
+                }
+
+                Ok(RedisCommand::Set {
+                    key: cmds[1].clone(),
+                    value: cmds[2].clone(),
+                    expiry,
+                })
+            }
 
             "get" => {
                 if cmds.len() < 2 {
@@ -69,11 +113,15 @@ impl RedisCommand {
             }
             "ping" => Ok(RedisCommand::Ping),
             "echo" => {
-                if cmds.len() < 2 { return Err("ECHO requires an argument".to_string()); }
+                if cmds.len() < 2 {
+                    return Err("ECHO requires an argument".to_string());
+                }
                 Ok(RedisCommand::Echo(cmds[1].clone()))
-            },
+            }
             "type" => {
-                if cmds.len() < 2 { return Err("TYPE requires a key".to_string()); }
+                if cmds.len() < 2 {
+                    return Err("TYPE requires a key".to_string());
+                }
                 Ok(RedisCommand::Type(cmds[1].clone()))
             }
             "lpush" => {
@@ -127,7 +175,6 @@ impl RedisCommand {
 
             "blpop" => {
                 if cmds.len() < 3 {
-
                     return Err("BLPOP requires at least one key and a timeout".to_string());
                 }
                 let timeout = std::str::from_utf8(cmds.last().unwrap())

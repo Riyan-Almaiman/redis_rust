@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
-use crate::db::CommandOutcome;
+use crate::db::{Client, CommandOutcome};
 
 #[derive(Debug)]
 
@@ -24,13 +24,6 @@ pub struct BlockingClient {
     pub response_tx: oneshot::Sender<Resp>,
     timeout: Duration,
     created_at: Instant,
-}
-#[derive(Debug)]
-pub struct Client {
-    pub client_id: Uuid,
-    pub timeout: Option<Duration>,
-    pub response_tx: oneshot::Sender<Resp>,
-    pub command: RedisCommand,
 }
 
 
