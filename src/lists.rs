@@ -72,14 +72,16 @@ impl Lists {
                 }
                 RedisCommand::InternalTimeoutCleanup { key, client_id } => {
                     if let Some(clients) = self.blocking_clients.get_mut(&key) {
-                        if let Some(expired_client) = clients.shift_remove(&client_id) {
+                        if let Some(expired_client) = clients.swap_remove(&client_id) {
                             expired_client
                                 .response_tx
                                 .send(Resp::NullArray)
                                 .expect("failed to send response");
                         }
                     };
-                    CommandOutcome::Done(Resp::NullBulkString)
+                    println!("{}", request.client_id);
+
+                    continue;
                 }
 
                 _ => {
