@@ -55,9 +55,15 @@ impl RedisCommand {
 
         match command_name.as_str() {
             "xadd" => {
-                if cmds.len() < 4 || cmds.len() % 2 != 0 {
+                let ascii_cmds: Vec<String> = cmds
+                    .iter()
+                    .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+                    .collect();
+
+                if cmds.len() < 5 || (cmds.len() - 3) % 2 != 0 {
                     return Err("XADD requires key, ID, and at least one field-value pair".to_string());
                 }
+
 
                 let key = cmds[1].clone();
                 let id = cmds[2].clone();
