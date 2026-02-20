@@ -1,29 +1,46 @@
 #![allow(unused_imports)]
+
 extern crate core;
 
 mod resp;
+
 mod parser;
+
 mod commands;
+
 mod connection;
+
 mod lists;
+
 mod db;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 use tokio::net::{TcpListener, TcpStream};
+
 use tokio::sync::mpsc;
+
 use uuid::Uuid;
 
 use crate::commands::RedisCommand;
+
 use crate::db::DB;
+
 use crate::db::Client;
+
 use crate::parser::Parser;
+
 use crate::resp::Resp;
 
 #[tokio::main]
+
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").await.expect("Failed to bind");
+    let listener = TcpListener::bind("127.0.0.1:6379")
+        .await
+        .expect("Failed to bind");
 
     let mut db = DB::new();
+
     let db_tx = db.sender.clone();
 
     tokio::spawn(async move {
@@ -32,6 +49,7 @@ async fn main() {
 
     loop {
         let (stream, _) = listener.accept().await.expect("Accept failed");
+
         let connection_tx = db_tx.clone();
 
         tokio::spawn(async move {
@@ -41,61 +59,76 @@ async fn main() {
 }
 
 // main.rs
+
 async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
+
     let mut buffer = [0u8; 1024];
 
     loop {
         let n = match connection.read(&mut buffer).await {
             Ok(0) => return,
+
             Ok(n) => n,
+
             Err(_) => return,
         };
 
         parser.read_buffer.extend_from_slice(&buffer[..n]);
 
-        while let Some(cmd_resp) = parser.parse() {
-            if let Resp::Array(arr) = cmd_resp {
-                let mut cmds: Vec<Vec<u8>> = arr.iter()
-                    .map(|item| Resp::get_bytes(item))
-                    .collect();
+        let mut commands = Vec::new();
 
-                execute_command(&mut connection, connection_tx.clone(), uuid, &cmds).await;
+        while let Some(cmd_resp) = parser.parse() {
+            if let Resp::Array(ref arr) = cmd_resp {
+                let cmds: Vec<Vec<u8>> = arr.iter().map(|item| Resp::get_bytes(item)).collect();
+
+                commands.push(RedisCommand::from_resp(&*cmds));
             }
         }
+
+        execute_commands(&mut connection, connection_tx.clone(), uuid, commands).await;
     }
 }
 
-async fn execute_command(
+async fn execute_commands(
     stream: &mut TcpStream,
     tx: mpsc::Sender<Client>,
     id: Uuid,
-    cmds: &Vec<Vec<u8>>,
+    cmds: Vec<Result<RedisCommand, String>>,
 ) {
-    let parsed_command = RedisCommand::from_resp(cmds);
+    // Pre-allocate 4KB to prevent resizing mid-loop
+    let mut bytes_batch = Vec::with_capacity(4096);
 
-    match parsed_command {
-        Ok(c) => {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            let client_req = Client {
-                client_id: id,
-                timeout: None,
-                response_tx: resp_tx,
-                command: c
-            };
+    for parsed_command in cmds {
+        match parsed_command {
+            Ok(c) => {
+                let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                let client_req = Client {
+                    client_id: id,
+                    timeout: None,
+                    response_tx: resp_tx,
+                    command: c,
+                };
 
-            if let Err(_) = tx.send(client_req).await {
-                return;
+                if tx.send(client_req).await.is_err() {
+                    return;
+                }
+
+                if let Ok(response) = resp_rx.await {
+                    // Write directly into our batch buffer
+                    response.write_format(&mut bytes_batch);
+                }
             }
-
-            if let Ok(response) = resp_rx.await {
-                let bytes = Resp::formate_cmd(&response);
-                let _ = stream.write_all(&bytes).await;
+            Err(e) => {
+                bytes_batch.extend_from_slice(b"-ERR ");
+                bytes_batch.extend_from_slice(e.as_bytes());
+                bytes_batch.extend_from_slice(b"\r\n");
             }
         }
-        Err(e) => {
-            let error_msg = format!("-ERR {}\r\n", e);
-            let _ = stream.write_all(error_msg.as_bytes()).await;
-        }
+    }
+
+    // One single syscall for the whole batch
+    if !bytes_batch.is_empty() {
+        let _ = stream.write_all(&bytes_batch).await;
     }
 }

@@ -20,6 +20,42 @@ impl Resp {
             _ => Vec::new(),
         };
     }
+    pub fn write_format(&self, out: &mut Vec<u8>) {
+        match self {
+            Resp::SimpleString(bytes) => {
+                out.push(b'+');
+                out.extend_from_slice(bytes);
+                out.extend_from_slice(b"\r\n");
+            }
+            Resp::Integer(number) => {
+                out.push(b':');
+                out.extend_from_slice(number.to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
+            }
+            Resp::BulkString(bytes) => {
+                out.push(b'$');
+                out.extend_from_slice(bytes.len().to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
+                out.extend_from_slice(bytes);
+                out.extend_from_slice(b"\r\n");
+            }
+            Resp::Array(items) => {
+                out.push(b'*');
+                out.extend_from_slice(items.len().to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
+                for item in items {
+                    item.write_format(out);
+                }
+            }
+            Resp::Error(bytes) => {
+                out.push(b'-');
+                out.extend_from_slice(bytes);
+                out.extend_from_slice(b"\r\n");
+            }
+            Resp::NullBulkString => out.extend_from_slice(b"$-1\r\n"),
+            Resp::NullArray => out.extend_from_slice(b"*-1\r\n"),
+        }
+    }
     pub fn formate_cmd(&self) -> Vec<u8> {
         match self {
             Resp::SimpleString(bytes) => {
