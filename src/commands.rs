@@ -31,7 +31,7 @@ pub enum RedisCommand {
     },
     BLPop {
         keys: Vec<Vec<u8>>,
-        timeout: u64,
+        timeout: f64,
     },
 }
 impl RedisCommand {
@@ -110,6 +110,7 @@ impl RedisCommand {
 
             "blpop" => {
                 if cmds.len() < 3 {
+
                     return Err("BLPOP requires at least one key and a timeout".to_string());
                 }
                 let timeout = std::str::from_utf8(cmds.last().unwrap())

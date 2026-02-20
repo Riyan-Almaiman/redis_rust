@@ -41,7 +41,7 @@ enum CommandOutcome {
     Done(Resp),
     Blocked{
         keys: Vec<Vec<u8>>,
-        timeout: u64,
+        timeout: f64,
         id: Uuid,
     },
 }
@@ -101,7 +101,7 @@ impl Lists {
     fn blpop(
         &mut self,
         keys: &Vec<Vec<u8>>,
-        timeout: u64,
+        timeout: f64,
         id: Uuid,
     ) -> CommandOutcome {
         for key in keys {
@@ -114,7 +114,7 @@ impl Lists {
                                 return CommandOutcome::Done(Resp::Array(vec![Resp::BulkString(key.clone()),resp]));
                             }
                             CommandOutcome::Blocked{keys, timeout, id} => {
-
+                                        return CommandOutcome::Done(Resp::Error("error".as_bytes().to_vec()));
                             }
                         }
                     }
@@ -122,7 +122,6 @@ impl Lists {
                 Err(_) => {}
             }
         }
-
 
         CommandOutcome::Blocked {
             keys: keys.clone(),
@@ -133,18 +132,17 @@ impl Lists {
     fn create_blocking_client(
         &mut self,
         keys: &Vec<Vec<u8>>,
-        timeout: u64,
+        timeout: f64,
         id: Uuid,
         response_tx: Sender<Resp>,
     )  {
 
-
         let key_str = String::from_utf8_lossy(keys[0].as_slice()).to_string();
         let sender_clone = self.sender.clone();
-        if timeout > 0 {
+        if timeout > 0.0 {
             let key_clone = key_str.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(timeout)).await;
+                tokio::time::sleep(Duration::from_millis((timeout * 1000.0) as u64)).await;
                 let _ = sender_clone
                     .send(Client {
                         client_id: id,
@@ -161,7 +159,7 @@ impl Lists {
         let client = BlockingClient {
             id,
             response_tx,
-            timeout: Duration::from_secs(timeout),
+            timeout: Duration::from_millis((timeout * 1000.0) as u64),
             created_at: Instant::now(),
         };
 
@@ -324,9 +322,9 @@ impl Lists {
         };
 
         for (i, m) in elements.iter().enumerate() {
-           
+
                 list.list.push_front(elements[i].clone())
-            
+
         }
 
         return CommandOutcome::Done(Integer(list.list.len()));
