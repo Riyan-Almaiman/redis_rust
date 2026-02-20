@@ -89,7 +89,6 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Option<Resp> {
-        println!("Buffer contains: {:?}", self.read_buffer);
         while self.current_index < self.read_buffer.len() {
 
             match self.current_command.current_state {
@@ -105,7 +104,6 @@ impl Parser {
                 },
                 _ => {
                     self.current_command.current_state = self.parse_command_array();
-                    println!("current command {:?}", self.current_command.current_state);
                     if self.current_command.elements.len() == self.current_command.element_count as usize {
                         let result = Resp::Array(self.current_command.elements.clone());
 
@@ -190,7 +188,6 @@ impl Parser {
 
             return Incomplete;
         }
-        println!("bulk length {number} current index {}", self.current_index);
         if self.read_buffer[self.current_index + number as usize ] != b'\r'
             || self.read_buffer[self.current_index + number as usize + 1] != b'\n'
         {

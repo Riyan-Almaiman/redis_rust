@@ -57,13 +57,13 @@ impl Lists {
             let response_tx = request.response_tx;
 
             let r = match request.command {
-                RedisCommand::RPush { elements, key } => self.rpush(key, elements, response_tx),
+                RedisCommand::RPush { elements, key } => self.rpush(key, elements),
                 RedisCommand::LRange { key, start, stop } => {
-                    self.get_list_range(key, start, stop, response_tx)
+                    self.get_list_range(key, start, stop)
                 }
-                RedisCommand::LPop { key, count } => self.lpop(&key, count, response_tx),
-                RedisCommand::LLen(key) => self.llen(&key, response_tx),
-                RedisCommand::LPush { key, elements } => self.lpush(&key, elements, response_tx),
+                RedisCommand::LPop { key, count } => self.lpop(&key, count),
+                RedisCommand::LLen(key) => self.llen(&key),
+                RedisCommand::LPush { key, elements } => self.lpush(&key, elements),
                 RedisCommand::BLPop { keys, timeout } => {
                     self.blpop(&keys, timeout, request.client_id, response_tx)
                 }
@@ -97,11 +97,8 @@ impl Lists {
             match list {
                 Ok(list) => {
                     if !list.list.is_empty() {
-                        let popped = self.lpop(key, 1, response_tx);
-                        return match popped {
-                            CommandOutcome::Done(resp) => CommandOutcome::Done(resp),
-                            CommandOutcome::Blocked => CommandOutcome::Blocked,
-                        };
+                         self.lpop(key, 1);
+
                     }
                 }
                 Err(_) => {}
@@ -142,14 +139,11 @@ impl Lists {
         &mut self,
         key: Vec<u8>,
         elements: Vec<Vec<u8>>,
-        response_tx: Sender<Resp>,
     ) -> CommandOutcome {
         let list_entry = match self.get_or_create_list(&key) {
             Ok(v) => v,
             Err(e) => {
-                response_tx
-                    .send(Resp::Error(e.as_bytes().to_vec()))
-                    .expect("failed to send");
+
                 return CommandOutcome::Done(Resp::Error(e.as_bytes().to_vec()));
             }
         };
@@ -158,41 +152,31 @@ impl Lists {
             list_entry.list.push_back(element);
         }
 
-        response_tx
-            .send(Integer(list_entry.list.len()))
-            .expect("failed to send");
+
         CommandOutcome::Done(Integer(list_entry.list.len()))
     }
 
-    fn lpop(&mut self, key: &Vec<u8>, count: usize, response_tx: Sender<Resp>) -> CommandOutcome {
+    fn lpop(&mut self, key: &Vec<u8>, count: usize) -> CommandOutcome {
         let key_str = match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(_) => {
-                response_tx
-                    .send(Resp::Error(
-                        "Invalid UTF-8 key".to_string().as_bytes().to_vec(),
-                    ))
-                    .expect("failed to send");
+
                 return CommandOutcome::Done(Resp::Error(
                     "Invalid UTF-8 key".to_string().as_bytes().to_vec(),
-                ));
+                ))
             }
         };
 
         let list_entry = match self.lists.get_mut(&key_str) {
             Some(l) => l,
             None => {
-                response_tx
-                    .send(Resp::NullBulkString)
-                    .expect("failed to send");
+
                 return CommandOutcome::Done(Resp::NullBulkString);
             }
         };
 
         if list_entry.list.is_empty() {
-            response_tx
-                .send(Resp::NullBulkString)
-                .expect("failed to send");
+
             return CommandOutcome::Done(Resp::NullBulkString);
         }
 
@@ -206,31 +190,24 @@ impl Lists {
         }
 
         if popped.len() == 1 && count == 1 {
-            response_tx
-                .send(popped.pop().unwrap())
-                .expect("failed to send");
+
             return CommandOutcome::Done(popped.pop().unwrap());
         } else if popped.is_empty() {
-            response_tx.send(Resp::NullArray).expect("failed to send");
+
             return CommandOutcome::Done(Resp::NullArray);
         } else {
-            response_tx
-                .send(Resp::Array(popped.clone()))
-                .expect("failed to send");
+
             return CommandOutcome::Done(Resp::Array(popped));
         }
     }
-    fn llen(&self, key: &Vec<u8>, response_tx: Sender<Resp>) -> CommandOutcome {
+    fn llen(&self, key: &Vec<u8>) -> CommandOutcome {
         let list = match self.get_list(key) {
             Ok(v) => v,
             Err(e) => {
-                response_tx.send(Resp::Integer(0)).expect("failed to send");
                 return CommandOutcome::Done(Integer(0));
             }
         };
-        response_tx
-            .send(Resp::Integer(list.list.len()))
-            .expect("failed to send");
+
         return CommandOutcome::Done(Integer(list.list.len()));
     }
     fn get_list(&self, key: &Vec<u8>) -> Result<&List, String> {
@@ -258,15 +235,12 @@ impl Lists {
         &self,
         key: Vec<u8>,
         start_raw: i64,
-        end_raw: i64,
-        response_tx: Sender<Resp>,
+        end_raw: i64
     ) -> CommandOutcome {
         let list_entry = match self.get_list(&key) {
             Ok(l) => l,
             Err(_) => {
-                response_tx
-                    .send(Resp::Array(Vec::new()))
-                    .expect("failed to send");
+
                 return CommandOutcome::Done(Resp::Array(Vec::new()));
             }
         };
@@ -274,9 +248,7 @@ impl Lists {
         let len = list_entry.list.len() as i64;
 
         if len == 0 {
-            response_tx
-                .send(Resp::Array(Vec::new()))
-                .expect("failed to send");
+
             return CommandOutcome::Done(Resp::Array(Vec::new()));
         }
 
@@ -293,9 +265,7 @@ impl Lists {
         };
 
         if start > end || start >= len {
-            response_tx
-                .send(Resp::Array(Vec::new()))
-                .expect("failed to send");
+
             return CommandOutcome::Done(Resp::Array(Vec::new()));
         }
 
@@ -309,23 +279,18 @@ impl Lists {
             .take(count)
             .map(|v| Resp::BulkString(v.clone()))
             .collect();
-        response_tx
-            .send(Resp::Array(items.clone()))
-            .expect("failed to send");
+
         return CommandOutcome::Done(Resp::Array(items));
     }
     fn lpush(
         &mut self,
         key: &Vec<u8>,
         elements: Vec<Vec<u8>>,
-        response_tx: Sender<Resp>,
     ) -> CommandOutcome {
         let list = match self.get_or_create_list(key) {
             Ok(l) => l,
             Err(e) => {
-                response_tx
-                    .send(Resp::Error(e.as_bytes().to_vec()))
-                    .expect("failed to send");
+
                 return CommandOutcome::Done(Resp::Error(e.as_bytes().to_vec()));
             }
         };
@@ -335,9 +300,7 @@ impl Lists {
                 list.list.push_front(elements[i].clone())
             }
         }
-        response_tx
-            .send(Resp::Integer(list.list.len()))
-            .expect("failed to send");
+
         return CommandOutcome::Done(Integer(list.list.len()));
     }
 }

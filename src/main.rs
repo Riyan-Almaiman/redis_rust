@@ -76,7 +76,6 @@ async fn handle_stream(mut connection: Connection) {
 
         parser.read_buffer.extend(&temp[..n]);
         let cmd =parser.parse();
-        println!("{:?}", cmd);
         if let Some(Resp::Array(elements)) = &cmd {
             let readable: Vec<String> = elements.iter().map(|el| {
                 match el {
@@ -85,7 +84,6 @@ async fn handle_stream(mut connection: Connection) {
                 }
             }).collect();
 
-            println!("{:?}", readable);
         }
         match cmd {
             Some(cmd) => match cmd{
