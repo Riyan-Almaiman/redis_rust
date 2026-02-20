@@ -89,19 +89,37 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Option<Resp> {
+
         while self.current_index < self.read_buffer.len() {
 
             match self.current_command.current_state {
                 CurrentState::None => {
-                    if self.read_buffer[self.current_index] == b'*' {
+                    let byte = self.read_buffer[self.current_index];
+
+                    if byte == b'*' {
                         self.current_command.current_state = ReadingArrayElementCount {
                             array: Array(Vec::new()),
                             starting_buffer_index: 0,
                             final_buffer_index: None,
                         };
+                        self.current_index += 1;
+                    } else {
+                        return if let Some(line) = self.read_until_clrf() {
+                            self.read_buffer.drain(..self.current_index);
+                            self.current_index = 0;
+
+                            let parts: Vec<Resp> = line
+                                .split(|b| *b == b' ')
+                                .map(|s| Resp::BulkString(s.to_vec()))
+                                .collect();
+
+                            Some(Resp::Array(parts))
+                        } else {
+                            None
+                        }
                     }
-                    self.current_index += 1;
-                },
+                }
+
                 _ => {
                     self.current_command.current_state = self.parse_command_array();
                     if self.current_command.elements.len() == self.current_command.element_count as usize {
@@ -157,17 +175,17 @@ impl Parser {
         }
     }
     fn read_simple_or_error_string(&mut self) -> CurrentState {
-            let string = self.read_until_clrf();
-            match string {
-                Some(s) => {
-                    self.current_command.elements.push(Resp::SimpleString(s));
-                    return ReadingElementType {
-                        element_symbol: None,
-                    };
-                }
-                None => Incomplete,
-
+        let string = self.read_until_clrf();
+        match string {
+            Some(s) => {
+                self.current_command.elements.push(Resp::SimpleString(s));
+                return ReadingElementType {
+                    element_symbol: None,
+                };
             }
+            None => Incomplete,
+
+        }
 
     }
     fn read_bulk_string_size(&mut self) -> CurrentState {
@@ -182,7 +200,7 @@ impl Parser {
                     return InvalidCommand},
             },
             None =>          {
-            return InvalidCommand}
+                return InvalidCommand}
         };
         if self.read_buffer.len() < (self.current_index + number as usize + 2) {
 
@@ -200,7 +218,7 @@ impl Parser {
             if count   ==  number as usize {
                 count+=2;
                 self.current_command.elements.push(Resp::BulkString(string));
-                 self.current_index+=count;
+                self.current_index+=count;
                 return ReadingElementType {
                     element_symbol: None,
                 };
