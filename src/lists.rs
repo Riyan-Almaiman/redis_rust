@@ -180,12 +180,14 @@ impl Lists {
             key,
             list: VecDeque::new(),
         });
+        let mut blocked_consumed_count = 0;
 
         if let Some(clients) = self.blocking_clients.get_mut(&list_entry.key) {
             for element in elements {
                 if let Some(blocked_client) = clients.shift_remove_index(0) {
 
                     let _ = blocked_client.1.response_tx.send(Resp::BulkString(element));
+                    blocked_consumed_count += 1;
                 } else {
                     list_entry.list.push_back(element);
                 }
@@ -197,7 +199,7 @@ impl Lists {
         }
 
 
-        CommandOutcome::Done(Integer(list_entry.list.len()))
+        CommandOutcome::Done(Integer(list_entry.list.len() + blocked_consumed_count))
     }
 
     fn lpop(&mut self, key: &Vec<u8>, count: usize) -> CommandOutcome {
