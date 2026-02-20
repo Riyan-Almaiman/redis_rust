@@ -1,4 +1,7 @@
+use std::cmp::Ordering;
+use std::time::Duration;
 use uuid::Uuid;
+use crate::db::{EntryId, StreamEntry};
 
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
@@ -39,8 +42,7 @@ pub enum RedisCommand {
     Type(Vec<u8>),
     XAdd {
         key: Vec<u8>,
-        id: Vec<u8>,
-        entries: Vec<(Vec<u8>, Vec<u8>)>,
+        entry: StreamEntry,
     },
 }
 impl RedisCommand {
@@ -55,31 +57,37 @@ impl RedisCommand {
 
         match command_name.as_str() {
             "xadd" => {
-                let ascii_cmds: Vec<String> = cmds
-                    .iter()
-                    .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-                    .collect();
-
                 if cmds.len() < 5 || (cmds.len() - 3) % 2 != 0 {
-                    return Err("XADD requires key, ID, and at least one field-value pair".to_string());
+                    return Err(
+                        "XADD requires key, ID, and at least one field-value pair".to_string()
+                    );
                 }
 
-
                 let key = cmds[1].clone();
-                let id = cmds[2].clone();
 
+                let id_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
+
+                let (time_str, seq_str) = id_str.split_once('-').ok_or("Invalid ID format")?;
+
+                let time = time_str
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid ID timestamp")?;
+
+                let sequence = seq_str.parse::<u64>().map_err(|_| "Invalid ID sequence")?;
+
+                let id = EntryId { time, sequence, id: id_str.to_string() };
                 let mut entries = Vec::new();
                 let mut i = 3;
                 while i + 1 < cmds.len() {
-                    entries.push((cmds[i].clone(), cmds[i+1].clone()));
+                    entries.push((cmds[i].clone(), cmds[i + 1].clone()));
                     i += 2;
                 }
+                let stream_entry = StreamEntry {
+                    fields: entries,
+                    entry_id: id
+                };
 
-                Ok(RedisCommand::XAdd {
-                    key,
-                    id,
-                    entries,
-                })
+                Ok(RedisCommand::XAdd { key,entry: stream_entry })
             }
             "set" => {
                 if cmds.len() < 3 {

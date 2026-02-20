@@ -58,8 +58,6 @@ async fn main() {
     }
 }
 
-// main.rs
-
 async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
 
@@ -96,7 +94,6 @@ async fn execute_commands(
     id: Uuid,
     cmds: Vec<Result<RedisCommand, String>>,
 ) {
-    // Pre-allocate 4KB to prevent resizing mid-loop
     let mut bytes_batch = Vec::with_capacity(4096);
 
     for parsed_command in cmds {
@@ -115,7 +112,6 @@ async fn execute_commands(
                 }
 
                 if let Ok(response) = resp_rx.await {
-                    // Write directly into our batch buffer
                     response.write_format(&mut bytes_batch);
                 }
             }
@@ -127,7 +123,6 @@ async fn execute_commands(
         }
     }
 
-    // One single syscall for the whole batch
     if !bytes_batch.is_empty() {
         let _ = stream.write_all(&bytes_batch).await;
     }

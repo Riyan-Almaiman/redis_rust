@@ -102,23 +102,22 @@ impl Parser {
                         };
                         self.current_index += 1;
                     } else {
-                        if let Some(line_slice) = self.read_until_clrf() {
-                            let line_vec = line_slice.to_vec();
-
+                        return if let Some(line) = self.read_until_clrf() {
                             self.read_buffer.drain(..self.current_index);
                             self.current_index = 0;
 
-                            let parts: Vec<Resp> = line_vec
+                            let parts: Vec<Resp> = line
                                 .split(|b| *b == b' ')
                                 .map(|s| Resp::BulkString(s.to_vec()))
                                 .collect();
 
-                            return Some(Resp::Array(parts));
+                            Some(Resp::Array(parts))
                         } else {
-                            return None;
-                        }
+                            None
+                        };
                     }
                 }
+
                 _ => {
                     self.current_command.current_state = self.parse_command_array();
                     if self.current_command.elements.len()
@@ -138,86 +137,115 @@ impl Parser {
         None
     }
     fn parse_command_array(&mut self) -> CurrentState {
-        let state = std::mem::replace(&mut self.current_command.current_state, CurrentState::None);
+        match self.current_command.current_state {
+            ReadingArrayElementCount {
+                array: _,
+                starting_buffer_index: _,
+                mut final_buffer_index,
+            } => {
+                let num = self.read_until_clrf();
+                match num {
+                    Some(n) => {
+                        final_buffer_index = Some(self.current_index);
 
-        match state {
-            ReadingArrayElementCount { .. } => {
-                let n_option = self.read_until_clrf().and_then(|b| Self::vec_to_u64(b));
+                        if let Some(n) = Self::vec_to_i64(&n) {
+                            self.current_command.element_count = n;
+                        } else {
+                            return InvalidCommand;
+                        }
 
-                if let Some(n) = n_option {
-                    self.current_command.element_count = n;
-                    self.current_command.states.push(state);
-                    ReadingElementType {
-                        element_symbol: None,
+                        self.current_command
+                            .states
+                            .push(self.current_command.current_state.clone());
+                        ReadingElementType {
+                            element_symbol: None,
+                        }
                     }
-                } else {
-                    Incomplete
+                    None => Incomplete,
                 }
             }
-            ReadingElementType { .. } => self.get_type(),
+            ReadingElementType { element_symbol } => self.get_type(),
+
             ReadingInteger { .. } => self.read_integer(),
             ReadingBulkString { .. } => self.read_bulk_string_size(),
-            ReadingSimpleString { .. } | ReadingError { .. } => self.read_simple_or_error_string(),
+            ReadingSimpleString { .. } => self.read_simple_or_error_string(),
+            ReadingError { .. } => self.read_simple_or_error_string(),
             _ => CurrentState::None,
         }
     }
     fn read_simple_or_error_string(&mut self) -> CurrentState {
-        let data_opt = self.read_until_clrf().map(|s| s.to_vec());
-
-        if let Some(data) = data_opt {
-            self.current_command.elements.push(Resp::SimpleString(data));
-            ReadingElementType {
-                element_symbol: None,
+        let string = self.read_until_clrf();
+        match string {
+            Some(s) => {
+                self.current_command.elements.push(Resp::SimpleString(s));
+                return ReadingElementType {
+                    element_symbol: None,
+                };
             }
-        } else {
-            Incomplete
+            None => Incomplete,
         }
     }
     fn read_bulk_string_size(&mut self) -> CurrentState {
-        let num = match self.read_until_clrf() {
-            Some(n) => match Self::vec_to_u64(n) {
+        let mut string = Vec::new();
+        let num = self.read_until_clrf();
+        let read = 0;
+        let number = match num {
+            Some(n) => match Self::vec_to_i64(&n) {
                 Some(n) => n,
                 None => return InvalidCommand,
             },
-            None => return Incomplete,
+            None => return InvalidCommand,
         };
-
-        let size = num as usize;
-        let total_needed = self.current_index + size + 2;
-
-        if self.read_buffer.len() < total_needed {
+        if self.read_buffer.len() < (self.current_index + number as usize + 2) {
             return Incomplete;
         }
-
-        let string_data = &self.read_buffer[self.current_index..self.current_index + size];
-
-        if self.read_buffer[self.current_index + size] != b'\r'
-            || self.read_buffer[self.current_index + size + 1] != b'\n'
+        if self.read_buffer[self.current_index + number as usize] != b'\r'
+            || self.read_buffer[self.current_index + number as usize + 1] != b'\n'
         {
             return InvalidCommand;
         }
-
-        self.current_command
-            .elements
-            .push(Resp::BulkString(string_data.to_vec()));
-        self.current_index += size + 2;
-
-        ReadingElementType {
-            element_symbol: None,
+        let mut count = 0;
+        while self.current_index < self.read_buffer.len() {
+            string.push(self.read_buffer[self.current_index + count]);
+            count += 1;
+            if count == number as usize {
+                count += 2;
+                self.current_command.elements.push(Resp::BulkString(string));
+                self.current_index += count;
+                return ReadingElementType {
+                    element_symbol: None,
+                };
+            }
         }
+
+        panic!("Invalid command size");
     }
     fn read_integer(&mut self) -> CurrentState {
-        let val_opt = self.read_until_clrf().and_then(|b| Self::vec_to_u64(b));
+        let num = self.read_until_clrf();
+        match num {
+            Some(n) => match &mut self.current_command.current_state {
+                ReadingInteger {
+                    parsed,
+                    final_buffer_index,
+                    ..
+                } => {
+                    match parsed {
+                        Resp::Integer(val) => {
+                            *val = Self::vec_to_i64(&n).unwrap() as usize;
+                            self.current_command.elements.push(parsed.clone())
+                        }
+                        _ => panic!("unreachable"),
+                    };
 
-        if let Some(val) = val_opt {
-            self.current_command
-                .elements
-                .push(Resp::Integer(val as usize));
-            ReadingElementType {
-                element_symbol: None,
-            }
-        } else {
-            Incomplete
+                    *final_buffer_index = Some(self.current_index);
+
+                    ReadingElementType {
+                        element_symbol: None,
+                    }
+                }
+                _ => panic!("unreachable"),
+            },
+            None => Incomplete,
         }
     }
     fn get_type(&mut self) -> CurrentState {
@@ -259,20 +287,18 @@ impl Parser {
         next_state_type
     }
 
-    fn read_until_clrf(&mut self) -> Option<&[u8]> {
-        let start = self.current_index;
-        let mut i = start;
-
-        while i + 1 < self.read_buffer.len() {
-            if self.read_buffer[i] == b'\r' && self.read_buffer[i + 1] == b'\n' {
-                self.current_index = i + 2;
-                return Some(&self.read_buffer[start..i]);
+    fn read_until_clrf(&mut self) -> Option<Vec<u8>> {
+        let mut num = Vec::new();
+        while self.current_index < self.read_buffer.len() {
+            if self.check_for_clrf() {
+                return Some(num);
             }
-            i += 1;
+            num.push(self.read_buffer[self.current_index]);
+            self.current_index += 1;
         }
         None
     }
-    fn vec_to_u64(vec: &[u8]) -> Option<i64> {
+    fn vec_to_i64(vec: &Vec<u8>) -> Option<i64> {
         let s = std::str::from_utf8(&vec).unwrap();
         Some(s.parse().unwrap())
     }

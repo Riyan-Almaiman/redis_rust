@@ -1,13 +1,12 @@
+use crate::db::{Client, CommandOutcome};
 use crate::resp::Resp;
 use crate::resp::Resp::Integer;
 use crate::RedisCommand;
 use indexmap::IndexMap;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
-use crate::db::{Client, CommandOutcome};
 
 #[derive(Debug)]
 
@@ -15,7 +14,6 @@ pub struct List {
     key: Vec<u8>,
     list: VecDeque<Vec<u8>>,
     pub blocking_clients: IndexMap<Uuid, BlockingClient>,
-
 }
 #[derive(Debug)]
 
@@ -26,7 +24,6 @@ pub struct BlockingClient {
     created_at: Instant,
 }
 
-
 impl List {
     pub fn new(key: Vec<u8>) -> Self {
         List {
@@ -35,7 +32,13 @@ impl List {
             blocking_clients: IndexMap::new(),
         }
     }
-    pub fn try_blpop(&mut self, id: Uuid, tx: oneshot::Sender<Resp>, timeout: f64, sender: mpsc::Sender<Client>) {
+    pub fn try_blpop(
+        &mut self,
+        id: Uuid,
+        tx: oneshot::Sender<Resp>,
+        timeout: f64,
+        sender: mpsc::Sender<Client>,
+    ) {
         if let Some(element) = self.list.pop_front() {
             let _ = tx.send(Resp::Array(vec![
                 Resp::BulkString(self.key.clone()),
@@ -45,7 +48,7 @@ impl List {
             self.create_blocking_client(&vec![self.key.clone()], timeout, id, tx, sender);
         }
     }
-  pub fn blpop(&mut self, keys: &Vec<Vec<u8>>, timeout: f64, id: Uuid) -> CommandOutcome {
+    pub fn blpop(&mut self, keys: &Vec<Vec<u8>>, timeout: f64, id: Uuid) -> CommandOutcome {
         for key in keys {
             if !self.list.is_empty() {
                 return match self.lpop(key, 1) {
@@ -66,7 +69,7 @@ impl List {
         }
     }
     // Add 'sender: mpsc::Sender<Client>' as an argument
-  pub fn create_blocking_client(
+    pub fn create_blocking_client(
         &mut self,
         keys: &Vec<Vec<u8>>,
         timeout: f64,
@@ -106,7 +109,7 @@ impl List {
 
         self.blocking_clients.insert(id, client);
     }
-  pub fn rpush(&mut self, elements: Vec<Vec<u8>>) -> CommandOutcome {
+    pub fn rpush(&mut self, elements: Vec<Vec<u8>>) -> CommandOutcome {
         let mut blocked_consumed_count = 0;
 
         if !self.blocking_clients.is_empty() {
@@ -130,7 +133,7 @@ impl List {
         CommandOutcome::Done(Integer(self.list.len() + blocked_consumed_count))
     }
 
-  pub fn lpop(&mut self, key: &Vec<u8>, count: usize) -> CommandOutcome {
+    pub fn lpop(&mut self, key: &Vec<u8>, count: usize) -> CommandOutcome {
         let key_str = match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(_) => {
@@ -161,11 +164,11 @@ impl List {
             return CommandOutcome::Done(Resp::Array(popped));
         }
     }
-  pub fn llen(&self) -> CommandOutcome {
+    pub fn llen(&self) -> CommandOutcome {
         return CommandOutcome::Done(Integer(self.list.len()));
     }
 
-  pub fn get_list_range(&self, start_raw: i64, end_raw: i64) -> CommandOutcome {
+    pub fn get_list_range(&self, start_raw: i64, end_raw: i64) -> CommandOutcome {
         let len = self.list.len() as i64;
 
         if len == 0 {
@@ -201,7 +204,7 @@ impl List {
 
         return CommandOutcome::Done(Resp::Array(items));
     }
-  pub fn lpush(&mut self, elements: Vec<Vec<u8>>) -> CommandOutcome {
+    pub fn lpush(&mut self, elements: Vec<Vec<u8>>) -> CommandOutcome {
         for (i, m) in elements.iter().enumerate() {
             self.list.push_front(elements[i].clone())
         }

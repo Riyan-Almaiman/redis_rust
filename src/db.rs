@@ -1,4 +1,4 @@
-use crate::commands::RedisCommand;
+use crate::commands::{RedisCommand};
 use crate::lists::{BlockingClient, List};
 use crate::resp::Resp;
 use indexmap::IndexMap;
@@ -19,6 +19,12 @@ pub struct Client {
     pub response_tx: oneshot::Sender<Resp>,
     pub command: RedisCommand,
 }
+#[derive(Debug, Clone)]
+pub struct EntryId {
+    pub time: u64,
+    pub sequence: u64,
+    pub id: String,
+}
 
 #[derive(Debug, Clone)]
 pub enum CommandOutcome {
@@ -31,14 +37,53 @@ pub enum CommandOutcome {
 }
 #[derive(Debug, Clone)]
 pub struct StreamEntry {
-    pub id: String,
+    pub entry_id: EntryId,
     pub fields: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Stream {
     pub entries: Vec<StreamEntry>,
-    pub last_id: String,
+    pub last_id: Option<EntryId>,
+}
+impl Stream{
+
+    pub fn new() -> Self {
+        Stream{entries: Vec::new(), last_id: None}
+    }
+    fn add_entry(&mut self, entry: StreamEntry) -> Result<(), String> {
+        let res = match &self.last_id {
+            None => {
+                if entry.entry_id.time == 0 && entry.entry_id.sequence == 0 {
+                    return  Err("RR The ID specified in XADD must be greater than 0-0".to_string())
+                }
+                self.entries.push(entry)
+
+            }
+            Some(id) => {
+                if !Self::validate_new_entry(&id, &entry.entry_id) {
+                     return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string())
+                }
+
+                self.entries.push(entry)
+
+            }
+        };
+        Ok(res)
+
+    }
+    fn validate_new_entry(last_entry_id: &EntryId, new_entry_id: &EntryId) -> bool {
+        if last_entry_id.time > new_entry_id.time {
+            return false;
+        }
+        if last_entry_id.time == new_entry_id.time && last_entry_id.sequence > new_entry_id.sequence {
+                return false;
+            }
+
+        true
+    }
+
+
 }
 enum ValueType {
     String(Vec<u8>),
@@ -49,10 +94,20 @@ enum ValueType {
     Stream(Stream),
     VectorSet
 }
+impl ValueType {
+    fn stream() -> Self {
+        ValueType::Stream(Stream::new())
+    }
 
+}
 struct KeyValue {
     expiry: Option<SystemTime>,
     value: ValueType,
+}
+ impl KeyValue {
+    pub fn new(expiry: Option<SystemTime>, value: ValueType) -> Self {
+        KeyValue{expiry, value}
+    }
 }
 impl DB {
     pub fn new() -> Self {
@@ -87,25 +142,27 @@ impl DB {
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
                 }
-                RedisCommand::XAdd { key, id, entries } => {
-                    let entry = self.database.entry(key.clone()).or_insert_with(|| KeyValue {
-                        expiry: None,
-                        value: ValueType::Stream(Stream {
-                            entries: Vec::new(),
-                            last_id: "0-0".to_string(),
-                        }),
+                RedisCommand::XAdd { key, entry } => {
+                    let stream = self.database.entry(key.clone()).or_insert_with(|| {
+                        KeyValue::new(None, ValueType::stream())
                     });
+                    if let ValueType::Stream( stream) = &mut stream.value {
+                        let new_entry = StreamEntry {
+                            entry_id: entry.entry_id.clone(),
+                            fields: entry.fields,
+                        };
+                        let result =  stream.add_entry(new_entry);
+                        match result{
+                            Ok(_) => {
+                                stream.last_id = Some(entry.entry_id.clone());
 
-                    if let ValueType::Stream(ref mut stream) = entry.value {
-                        let id_str = String::from_utf8_lossy(&id).to_string();
+                                CommandOutcome::Done(Resp::BulkString(entry.entry_id.id.into_bytes()))
+                            }
+                            Err(err) => {
+                                CommandOutcome::Done(Resp::Error(err.into_bytes()))
+                            }
+                        }
 
-                        stream.entries.push(StreamEntry {
-                            id: id_str.clone(),
-                            fields: entries,
-                        });
-                        stream.last_id = id_str.clone();
-
-                        CommandOutcome::Done(Resp::BulkString(id_str.into_bytes()))
                     } else {
                         CommandOutcome::Done(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()))
                     }
