@@ -324,9 +324,9 @@ impl Lists {
         };
 
         for (i, m) in elements.iter().enumerate() {
-            if i != 0 {
+           
                 list.list.push_front(elements[i].clone())
-            }
+            
         }
 
         return CommandOutcome::Done(Integer(list.list.len()));
