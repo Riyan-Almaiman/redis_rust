@@ -75,7 +75,7 @@ impl Lists {
                         if let Some(expired_client) = clients.shift_remove(&client_id) {
                             expired_client
                                 .response_tx
-                                .send(Resp::NullBulkString)
+                                .send(Resp::NullArray)
                                 .expect("failed to send response");
                         }
                     };
@@ -142,7 +142,7 @@ impl Lists {
         if timeout > 0.0 {
             let key_clone = key_str.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis((timeout * 1000.0) as u64)).await;
+                tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
                 let _ = sender_clone
                     .send(Client {
                         client_id: id,
@@ -159,7 +159,7 @@ impl Lists {
         let client = BlockingClient {
             id,
             response_tx,
-            timeout: Duration::from_millis((timeout * 1000.0) as u64),
+            timeout: Duration::from_secs_f64(timeout),
             created_at: Instant::now(),
         };
 
