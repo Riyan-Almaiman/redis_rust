@@ -61,6 +61,9 @@ impl Stream {
                 self.entries.push(entry)
             }
             Some(id) => {
+                if entry.entry_id.time == 0 && entry.entry_id.sequence == 0 {
+                    return Err("RR The ID specified in XADD must be greater than 0-0".to_string());
+                }
                 if !Self::validate_new_entry(&id, &entry.entry_id) {
                     return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
                 }
