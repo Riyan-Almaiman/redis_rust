@@ -111,7 +111,7 @@ impl Lists {
                     if !list.list.is_empty() {
                         match self.lpop(key, 1) {
                             CommandOutcome::Done(resp) => {
-                                return CommandOutcome::Done(resp)
+                                return CommandOutcome::Done(Resp::Array(vec![Resp::BulkString(key.clone()),resp]));
                             }
                             CommandOutcome::Blocked{keys, timeout, id} => {
 
@@ -167,7 +167,7 @@ impl Lists {
 
         self.blocking_clients
             .entry(key_str)
-            .or_default() 
+            .or_default()
             .insert(id, client);
     }
     fn rpush(&mut self, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandOutcome {
