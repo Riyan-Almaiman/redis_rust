@@ -1,7 +1,6 @@
-use crate::commands::{RedisCommand};
-use crate::lists::{BlockingClient, List};
+use crate::commands::RedisCommand;
+use crate::lists::List;
 use crate::resp::Resp;
-use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -46,44 +45,45 @@ pub struct Stream {
     pub entries: Vec<StreamEntry>,
     pub last_id: Option<EntryId>,
 }
-impl Stream{
-
+impl Stream {
     pub fn new() -> Self {
-        Stream{entries: Vec::new(), last_id: None}
+        Stream {
+            entries: Vec::new(),
+            last_id: None,
+        }
     }
     fn add_entry(&mut self, entry: StreamEntry) -> Result<(), String> {
         let res = match &self.last_id {
             None => {
                 if entry.entry_id.time == 0 && entry.entry_id.sequence == 0 {
-                    return  Err("RR The ID specified in XADD must be greater than 0-0".to_string())
+                    return Err("RR The ID specified in XADD must be greater than 0-0".to_string());
                 }
                 self.entries.push(entry)
-
             }
             Some(id) => {
                 if !Self::validate_new_entry(&id, &entry.entry_id) {
-                     return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string())
+                    return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
                 }
 
                 self.entries.push(entry)
-
             }
         };
         Ok(res)
-
     }
     fn validate_new_entry(last_entry_id: &EntryId, new_entry_id: &EntryId) -> bool {
+        if last_entry_id.id == new_entry_id.id {
+            return false;
+        }
         if last_entry_id.time > new_entry_id.time {
             return false;
         }
-        if last_entry_id.time == new_entry_id.time && last_entry_id.sequence > new_entry_id.sequence {
-                return false;
-            }
+        if last_entry_id.time == new_entry_id.time && last_entry_id.sequence > new_entry_id.sequence
+        {
+            return false;
+        }
 
         true
     }
-
-
 }
 enum ValueType {
     String(Vec<u8>),
@@ -92,21 +92,20 @@ enum ValueType {
     ZSet,
     Hash,
     Stream(Stream),
-    VectorSet
+    VectorSet,
 }
 impl ValueType {
     fn stream() -> Self {
         ValueType::Stream(Stream::new())
     }
-
 }
 struct KeyValue {
     expiry: Option<SystemTime>,
     value: ValueType,
 }
- impl KeyValue {
+impl KeyValue {
     pub fn new(expiry: Option<SystemTime>, value: ValueType) -> Self {
-        KeyValue{expiry, value}
+        KeyValue { expiry, value }
     }
 }
 impl DB {
@@ -143,28 +142,32 @@ impl DB {
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
                 }
                 RedisCommand::XAdd { key, entry } => {
-                    let stream = self.database.entry(key.clone()).or_insert_with(|| {
-                        KeyValue::new(None, ValueType::stream())
-                    });
-                    if let ValueType::Stream( stream) = &mut stream.value {
+                    let stream = self
+                        .database
+                        .entry(key.clone())
+                        .or_insert_with(|| KeyValue::new(None, ValueType::stream()));
+
+                    if let ValueType::Stream(stream) = &mut stream.value {
                         let new_entry = StreamEntry {
                             entry_id: entry.entry_id.clone(),
                             fields: entry.fields,
                         };
-                        let result =  stream.add_entry(new_entry);
-                        match result{
+                        let result = stream.add_entry(new_entry);
+                        match result {
                             Ok(_) => {
                                 stream.last_id = Some(entry.entry_id.clone());
 
-                                CommandOutcome::Done(Resp::BulkString(entry.entry_id.id.into_bytes()))
+                                CommandOutcome::Done(Resp::BulkString(
+                                    entry.entry_id.id.into_bytes(),
+                                ))
                             }
-                            Err(err) => {
-                                CommandOutcome::Done(Resp::Error(err.into_bytes()))
-                            }
+                            Err(err) => CommandOutcome::Done(Resp::Error(err.into_bytes())),
                         }
-
                     } else {
-                        CommandOutcome::Done(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()))
+                        CommandOutcome::Done(Resp::Error(
+                            b"WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_vec(),
+                        ))
                     }
                 }
                 RedisCommand::Get(key) => {
@@ -189,10 +192,13 @@ impl DB {
                     }
                 }
                 RedisCommand::LPush { key, elements } => {
-                    let entry = self.database.entry(key.clone()).or_insert_with(|| KeyValue {
-                        expiry: None,
-                        value: ValueType::List(List::new(key.clone())),
-                    });
+                    let entry = self
+                        .database
+                        .entry(key.clone())
+                        .or_insert_with(|| KeyValue {
+                            expiry: None,
+                            value: ValueType::List(List::new(key.clone())),
+                        });
 
                     if let ValueType::List(ref mut list) = entry.value {
                         list.lpush(elements)
@@ -234,12 +240,21 @@ impl DB {
                         if let Some(tx) = tx_wrapper.take() {
                             let first_key = keys[0].clone();
                             let mut new_list = List::new(first_key.clone());
-                            new_list.create_blocking_client(&keys, timeout, client_id, tx, self.sender.clone());
+                            new_list.create_blocking_client(
+                                &keys,
+                                timeout,
+                                client_id,
+                                tx,
+                                self.sender.clone(),
+                            );
 
-                            self.database.insert(first_key, KeyValue {
-                                expiry: None,
-                                value: ValueType::List(new_list),
-                            });
+                            self.database.insert(
+                                first_key,
+                                KeyValue {
+                                    expiry: None,
+                                    value: ValueType::List(new_list),
+                                },
+                            );
                         }
                     }
                     continue;
@@ -247,7 +262,9 @@ impl DB {
                 RedisCommand::InternalTimeoutCleanup { key, client_id } => {
                     if let Some(kv) = self.database.get_mut(key.as_bytes()) {
                         if let ValueType::List(ref mut list) = kv.value {
-                            if let Some(blocked_client) = list.blocking_clients.shift_remove(&client_id) {
+                            if let Some(blocked_client) =
+                                list.blocking_clients.shift_remove(&client_id)
+                            {
                                 let _ = blocked_client.response_tx.send(Resp::NullArray);
                             }
                         }
