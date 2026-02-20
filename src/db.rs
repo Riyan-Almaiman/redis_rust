@@ -122,30 +122,35 @@ impl DB {
                 RedisCommand::Ping => CommandOutcome::Done(Resp::SimpleString(b"PONG".to_vec())),
                 RedisCommand::Echo(data) => CommandOutcome::Done(Resp::BulkString(data)),
                 RedisCommand::BLPop { keys, timeout } => {
-                    let mut result = None;
+                    let mut satisfied = false;
+                    // Wrap the sender so we can "take" it once
+                    let mut tx_wrapper = Some(response_tx);
+
                     for key in &keys {
                         if let Some(kv) = self.database.get_mut(key) {
                             if let ValueType::List(ref mut list) = kv.value {
-                                if let CommandOutcome::Done(resp) = list.lpop(key, 1) {
-                                    result = Some(CommandOutcome::Done(Resp::Array(vec![
-                                        Resp::BulkString(key.clone()),
-                                        resp,
-                                    ])));
-                                    break;
+                                if let Some(tx) = tx_wrapper.take() {
+                                    list.try_blpop(client_id, tx, timeout, self.sender.clone());
+                                    satisfied = true;
                                 }
+                                break;
                             }
                         }
                     }
 
-                    if let Some(outcome) = result {
-                        outcome
-                    } else {
-                        CommandOutcome::Blocked {
-                            keys,
-                            timeout,
-                            id: client_id,
+                    if !satisfied {
+                        if let Some(tx) = tx_wrapper.take() {
+                            let first_key = keys[0].clone();
+                            let mut new_list = List::new(first_key.clone());
+                            new_list.create_blocking_client(&keys, timeout, client_id, tx, self.sender.clone());
+
+                            self.database.insert(first_key, KeyValue {
+                                expiry: None,
+                                value: ValueType::List(new_list),
+                            });
                         }
                     }
+                    continue;
                 }
                 RedisCommand::InternalTimeoutCleanup { key, client_id } => {
                     if let Some(kv) = self.database.get_mut(key.as_bytes()) {

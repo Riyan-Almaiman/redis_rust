@@ -35,7 +35,16 @@ impl List {
             blocking_clients: IndexMap::new(),
         }
     }
-
+    pub fn try_blpop(&mut self, id: Uuid, tx: oneshot::Sender<Resp>, timeout: f64, sender: mpsc::Sender<Client>) {
+        if let Some(element) = self.list.pop_front() {
+            let _ = tx.send(Resp::Array(vec![
+                Resp::BulkString(self.key.clone()),
+                Resp::BulkString(element),
+            ]));
+        } else {
+            self.create_blocking_client(&vec![self.key.clone()], timeout, id, tx, sender);
+        }
+    }
   pub fn blpop(&mut self, keys: &Vec<Vec<u8>>, timeout: f64, id: Uuid) -> CommandOutcome {
         for key in keys {
             if !self.list.is_empty() {
