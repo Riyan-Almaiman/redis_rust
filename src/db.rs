@@ -29,13 +29,24 @@ pub enum CommandOutcome {
         id: Uuid,
     },
 }
+#[derive(Debug, Clone)]
+pub struct StreamEntry {
+    pub id: String,
+    pub fields: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Stream {
+    pub entries: Vec<StreamEntry>,
+    pub last_id: String,
+}
 enum ValueType {
     String(Vec<u8>),
     List(List),
     Set,
     ZSet,
     Hash,
-    Stream,
+    Stream(Stream),
     VectorSet
 }
 
@@ -70,10 +81,34 @@ impl DB {
                         Some(kv) => match kv.value {
                             ValueType::String(_) => b"string".as_slice(),
                             ValueType::List(_) => b"list".as_slice(),
+                            ValueType::Stream(_) => b"stream".as_slice(),
                             _ => b"none".as_slice(),
                         },
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
+                }
+                RedisCommand::XAdd { key, id, entries } => {
+                    let entry = self.database.entry(key.clone()).or_insert_with(|| KeyValue {
+                        expiry: None,
+                        value: ValueType::Stream(Stream {
+                            entries: Vec::new(),
+                            last_id: "0-0".to_string(),
+                        }),
+                    });
+
+                    if let ValueType::Stream(ref mut stream) = entry.value {
+                        let id_str = String::from_utf8_lossy(&id).to_string();
+
+                        stream.entries.push(StreamEntry {
+                            id: id_str.clone(),
+                            fields: entries,
+                        });
+                        stream.last_id = id_str.clone();
+
+                        CommandOutcome::Done(Resp::BulkString(id_str.into_bytes()))
+                    } else {
+                        CommandOutcome::Done(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()))
+                    }
                 }
                 RedisCommand::Get(key) => {
                     let is_expired = self.database.get(&key).map_or(false, |kv| {

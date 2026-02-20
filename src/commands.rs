@@ -37,6 +37,11 @@ pub enum RedisCommand {
         timeout: f64,
     },
     Type(Vec<u8>),
+    XAdd {
+        key: Vec<u8>,
+        id: Vec<u8>,
+        entries: Vec<(Vec<u8>, Vec<u8>)>,
+    },
 }
 impl RedisCommand {
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
@@ -49,6 +54,27 @@ impl RedisCommand {
             .map_err(|_| "Invalid UTF-8 in command")?;
 
         match command_name.as_str() {
+            "xadd" => {
+                if cmds.len() < 4 || cmds.len() % 2 != 0 {
+                    return Err("XADD requires key, ID, and at least one field-value pair".to_string());
+                }
+
+                let key = cmds[1].clone();
+                let id = cmds[2].clone();
+
+                let mut entries = Vec::new();
+                let mut i = 3;
+                while i + 1 < cmds.len() {
+                    entries.push((cmds[i].clone(), cmds[i+1].clone()));
+                    i += 2;
+                }
+
+                Ok(RedisCommand::XAdd {
+                    key,
+                    id,
+                    entries,
+                })
+            }
             "set" => {
                 if cmds.len() < 3 {
                     return Err("SET requires a key and a value".to_string());
