@@ -1,4 +1,4 @@
-use crate::commands::RedisCommand;
+use crate::commands::{RedisCommand, StreamEntryIdCommandType};
 use crate::lists::List;
 use crate::resp::Resp;
 use std::collections::HashMap;
@@ -22,9 +22,12 @@ pub struct Client {
 pub struct EntryId {
     pub time: u64,
     pub sequence: u64,
-    pub id: String,
 }
-
+impl EntryId {
+    pub fn get_id_string(&self) -> String {
+        format!("{}-{}", self.time, self.sequence)
+    }
+}
 #[derive(Debug, Clone)]
 pub enum CommandOutcome {
     Done(Resp),
@@ -42,50 +45,86 @@ pub struct StreamEntry {
 
 #[derive(Debug, Clone)]
 pub struct Stream {
-    pub entries: Vec<StreamEntry>,
+    pub time_stamp_entries: HashMap<u64, Sequences>,
     pub last_id: Option<EntryId>,
+}
+#[derive(Debug, Clone)]
+
+pub struct Sequences {
+    entries: Vec<StreamEntry>,
+    sequence_count: u64,
 }
 impl Stream {
     pub fn new() -> Self {
         Stream {
-            entries: Vec::new(),
+            time_stamp_entries: HashMap::new(),
             last_id: None,
         }
     }
-    fn add_entry(&mut self, entry: StreamEntry) -> Result<(), String> {
-        let res = match &self.last_id {
-            None => {
-                if entry.entry_id.time == 0 && entry.entry_id.sequence == 0 {
-                    return Err("RR The ID specified in XADD must be greater than 0-0".to_string());
-                }
-                self.entries.push(entry)
-            }
-            Some(id) => {
-                if entry.entry_id.time == 0 && entry.entry_id.sequence == 0 {
-                    return Err("ERR The ID specified in XADD must be greater than 0-0".to_string());
-                }
-                if !Self::validate_new_entry(&id, &entry.entry_id) {
-                    return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
-                }
 
-                self.entries.push(entry)
+    pub fn add_entry(
+        &mut self,
+        fields: Vec<(Vec<u8>, Vec<u8>)>,
+        id_type: StreamEntryIdCommandType,
+    ) -> Result<EntryId, String> {
+        let generated_id = match id_type {
+            StreamEntryIdCommandType::Explicit { sequence, time } => {
+                let id = EntryId { sequence, time };
+                self.validate_new_entry_error(&id)?;
+                id
+            }
+            StreamEntryIdCommandType::GenerateTimeAndSequence => {
+                self.auto_generate_id()
+            }
+            StreamEntryIdCommandType::GenerateOnlySequence { time } => {
+                self.auto_generate_seq(time)?
             }
         };
-        Ok(res)
-    }
-    fn validate_new_entry(last_entry_id: &EntryId, new_entry_id: &EntryId) -> bool {
-        if last_entry_id.id == new_entry_id.id {
-            return false;
-        }
-        if last_entry_id.time > new_entry_id.time {
-            return false;
-        }
-        if last_entry_id.time == new_entry_id.time && last_entry_id.sequence > new_entry_id.sequence
-        {
-            return false;
-        }
 
-        true
+        let entry = StreamEntry { entry_id: generated_id.clone(), fields };
+
+        let sequences = self.time_stamp_entries.entry(generated_id.time).or_insert(Sequences {
+            entries: vec![],
+            sequence_count: 0,
+        });
+
+        sequences.entries.push(entry);
+        sequences.sequence_count = generated_id.sequence;
+        self.last_id = Some(generated_id.clone());
+
+        Ok(generated_id)
+    }
+
+
+    fn validate_new_entry_error(&self, new_id: &EntryId) -> Result<(), String> {
+        if new_id.time == 0 && new_id.sequence == 0 {
+            return Err("ERR The ID specified in XADD must be greater than 0-0".to_string());
+        }
+        if let Some(last) = &self.last_id {
+            if new_id.time < last.time || (new_id.time == last.time && new_id.sequence <= last.sequence) {
+                return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    fn auto_generate_id(&self) -> EntryId {
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64;
+        match &self.last_id {
+            Some(last) if now <= last.time => EntryId { time: last.time, sequence: last.sequence + 1 },
+            _ => EntryId { time: now, sequence: (now == 0) as u64 }
+        }
+    }
+
+    fn auto_generate_seq(&self, time: u64) -> Result<EntryId, String> {
+        let sequence = match &self.last_id {
+            Some(last) if time == last.time => last.sequence + 1,
+            _ if time == 0 => 1,
+            _ => 0,
+        };
+        let new_id = EntryId { time, sequence };
+        self.validate_new_entry_error(&new_id)?;
+        Ok(new_id)
     }
 }
 enum ValueType {
@@ -144,29 +183,23 @@ impl DB {
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
                 }
-                RedisCommand::XAdd { key, entry } => {
+                RedisCommand::XAdd { key, fields, id } => {
                     let stream = self
                         .database
                         .entry(key.clone())
                         .or_insert_with(|| KeyValue::new(None, ValueType::stream()));
 
-                    if let ValueType::Stream(stream) = &mut stream.value {
-                        let new_entry = StreamEntry {
-                            entry_id: entry.entry_id.clone(),
-                            fields: entry.fields,
-                        };
-                        let result = stream.add_entry(new_entry);
-                        match result {
-                            Ok(_) => {
-                                stream.last_id = Some(entry.entry_id.clone());
-
-                                CommandOutcome::Done(Resp::BulkString(
-                                    entry.entry_id.id.into_bytes(),
-                                ))
+                    if let ValueType::Stream(ref mut stream) = stream.value {
+                        match stream.add_entry(fields, id) {
+                            Ok(new_id) => {
+                                let id_str = new_id.get_id_string();
+                                CommandOutcome::Done(Resp::BulkString(id_str.into_bytes()))
                             }
-                            Err(err) => CommandOutcome::Done(Resp::Error(err.into_bytes())),
+                            Err(err) => {
+                                CommandOutcome::Done(Resp::Error(err.into_bytes()))
+                            }
                         }
-                    } else {
+                    }else {
                         CommandOutcome::Done(Resp::Error(
                             b"WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_vec(),
@@ -326,8 +359,6 @@ impl DB {
                         CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
                     }
                 }
-
-                _ => CommandOutcome::Done(Resp::NullArray),
             };
 
             match outcome {

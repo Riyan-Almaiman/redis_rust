@@ -3,6 +3,18 @@ use std::time::Duration;
 use uuid::Uuid;
 use crate::db::{EntryId, StreamEntry};
 
+#[derive(Clone, Debug)]
+pub enum StreamEntryIdCommandType{
+    Explicit{
+        time: u64,
+        sequence: u64
+    },
+    GenerateTimeAndSequence,
+
+    GenerateOnlySequence{
+        time: u64
+    },
+}
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
     Ping,
@@ -42,7 +54,8 @@ pub enum RedisCommand {
     Type(Vec<u8>),
     XAdd {
         key: Vec<u8>,
-        entry: StreamEntry,
+        fields: Vec<(Vec<u8>, Vec<u8>)>,
+        id: StreamEntryIdCommandType
     },
 }
 impl RedisCommand {
@@ -64,30 +77,38 @@ impl RedisCommand {
                 }
 
                 let key = cmds[1].clone();
-
-                let id_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
-
-                let (time_str, seq_str) = id_str.split_once('-').ok_or("Invalid ID format")?;
-
-                let time = time_str
-                    .parse::<u64>()
-                    .map_err(|_| "Invalid ID timestamp")?;
-
-                let sequence = seq_str.parse::<u64>().map_err(|_| "Invalid ID sequence")?;
-
-                let id = EntryId { time, sequence, id: id_str.to_string() };
                 let mut entries = Vec::new();
                 let mut i = 3;
                 while i + 1 < cmds.len() {
                     entries.push((cmds[i].clone(), cmds[i + 1].clone()));
                     i += 2;
                 }
-                let stream_entry = StreamEntry {
-                    fields: entries,
-                    entry_id: id
-                };
+                let id_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
+                if id_str.is_empty() {
+                    return Err("Invalid ID".to_string());
+                }
+                if id_str == "*" {
+                    return Ok(RedisCommand::XAdd { key, fields: entries, id: StreamEntryIdCommandType::GenerateTimeAndSequence })
+                }
 
-                Ok(RedisCommand::XAdd { key,entry: stream_entry })
+                let (time_str, seq_str) = id_str.split_once('-').ok_or("Invalid ID format")?;
+                let time = time_str
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid ID timestamp")?;
+
+                match  seq_str{
+                    "*" => {
+                        return Ok(RedisCommand::XAdd { key, fields: entries, id: StreamEntryIdCommandType::GenerateOnlySequence {time} })
+
+                    }
+                    (_) => {
+                        let sequence = seq_str.parse::<u64>().map_err(|_| "Invalid ID sequence")?;
+                        return Ok(RedisCommand::XAdd { key, fields: entries, id: StreamEntryIdCommandType::Explicit {time, sequence} })
+
+                    }
+                }
+
+
             }
             "set" => {
                 if cmds.len() < 3 {
