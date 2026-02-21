@@ -1,4 +1,5 @@
 use crate::commands::RedisCommand::XRange;
+use std::ascii::AsciiExt;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -8,7 +9,13 @@ pub enum StreamEntryIdCommandType {
 
     GenerateOnlySequence { time: u64 },
 }
+#[derive(Debug, Clone)]
 
+pub struct StreamRead {
+    pub key: Vec<u8>,
+    pub time: u64,
+    pub sequence: u64,
+}
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
     Ping,
@@ -58,6 +65,9 @@ pub enum RedisCommand {
         start_sequence: u64,
         end_sequence: u64,
     },
+    XRead {
+        streams: Vec<StreamRead>,
+    },
 }
 impl RedisCommand {
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
@@ -70,6 +80,50 @@ impl RedisCommand {
             .map_err(|_| "Invalid UTF-8 in command")?;
 
         match command_name.as_str() {
+            "xread" => {
+                let mut streams = Vec::new();
+                let index = cmds.iter().position(|x| {
+                    match str::from_utf8(&x.clone())  {
+                        Ok(s) => s.to_ascii_lowercase() == "streams",
+                        Err(_) => false,
+                    }
+
+                });
+                match index {
+                    None => return Err("No streams found".to_string()),
+                    Some(index) => {
+                        if (cmds[index..].len()-1) % 2 != 0 {
+                            return Err("invalid stream arguments".to_string());
+                        } else {
+                            let (key, id) = &cmds[index+1..].split_at(cmds[index+1..].len() /2);
+                            for i in 0..&cmds[index+1..].len()/2 {
+                                let (start_time, start_sequence) =
+                                    match str::from_utf8(&id[i])
+                                    .map_err(|e| e.to_string())?
+                                    .split_once('-')
+                                {
+                                    None => return Err("Invalid Id".to_string()),
+                                    Some((time, seq)) => (time.parse(), seq.parse()),
+                                };
+                                if let (Ok(start_time), Ok(start_sequence)) =
+                                    (start_time, start_sequence)
+                                {
+                                    streams.push(StreamRead {
+                                        key: key[i].clone(),
+                                        time: start_time,
+                                        sequence: start_sequence,
+                                    });
+                                } else {
+                                    return Err("Invalid Id".to_string());
+                                }
+                            }
+
+                        }
+                    }
+                }
+
+                Ok(RedisCommand::XRead { streams })
+            }
             "xrange" => {
                 let key = cmds[1].clone();
                 Self::parse_xrange(key, cmds)
@@ -267,8 +321,7 @@ impl RedisCommand {
         let start_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
         let end_str = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
 
-        let (start_time, start_seq) =
-            if start_str == "-" || start_str == "+" {
+        let (start_time, start_seq) = if start_str == "-" || start_str == "+" {
             match start_str {
                 "-" => (0, 0),
                 "+" => (u64::MAX, u64::MAX),
@@ -283,8 +336,7 @@ impl RedisCommand {
             (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
         };
 
-        let (end_time, end_seq) = 
-            if end_str == "-" || end_str == "+" {
+        let (end_time, end_seq) = if end_str == "-" || end_str == "+" {
             match end_str {
                 "-" => (0, 0),
                 "+" => (u64::MAX, u64::MAX),

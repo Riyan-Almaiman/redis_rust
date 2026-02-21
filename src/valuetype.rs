@@ -1,6 +1,5 @@
 use crate::lists::List;
 use crate::stream::Stream;
-use crate::valuetype::ValueType::String;
 
 pub enum ValueType {
     String(Vec<u8>),

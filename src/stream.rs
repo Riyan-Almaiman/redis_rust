@@ -1,7 +1,7 @@
 use crate::commands::StreamEntryIdCommandType;
-use std::collections::{BTreeMap, HashMap};
-use std::time::{SystemTime, UNIX_EPOCH};
 use crate::resp::Resp;
+use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct EntryId {
@@ -40,13 +40,28 @@ impl Stream {
             last_id: None,
         }
     }
-    pub fn get_range(&self, start_time: u64, end_time: u64, start_sequence: u64, end_sequence: u64) -> Resp {
+
+    pub fn get_range(
+        &self,
+        start_time: u64,
+        end_time: u64,
+        start_sequence: u64,
+        end_sequence: u64,
+    ) -> Resp {
         let mut results = Vec::new();
 
         for (&timestamp, sequences) in self.time_stamp_entries.range(start_time..=end_time) {
-            let current_start = if timestamp == start_time { start_sequence } else { 0 };
-            let current_end = if timestamp == end_time { end_sequence } else { u64::MAX };
-            
+            let current_start = if timestamp == start_time {
+                start_sequence
+            } else {
+                0
+            };
+            let current_end = if timestamp == end_time {
+                end_sequence
+            } else {
+                u64::MAX
+            };
+
             if current_start <= current_end {
                 for (_seq, entry) in sequences.entries.range(current_start..=current_end) {
                     let id_str = entry.entry_id.get_id_string();

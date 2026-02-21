@@ -60,6 +60,24 @@ impl DB {
             } = request;
 
             let outcome = match command {
+                RedisCommand::XRead{ streams} =>{
+                    let mut result = Vec::new();
+                    for streamread in streams {
+                        match self.database.get_mut(&streamread.key) {
+                            None => (),
+                            Some(kv) => {
+                                if let ValueType::Stream(stream) = &mut kv.value {
+                                    result.push(stream.get_range(streamread.time, u64::MAX, streamread.sequence, u64::MAX));
+                                } else {
+                                    CommandOutcome::Done(Resp::Error(
+                                        b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    CommandOutcome::Done(Resp::Array(result))
+                }
                 RedisCommand::Type(key) => {
                     let type_str = match self.database.get(&key) {
                         None => b"none".as_slice(),
@@ -67,31 +85,37 @@ impl DB {
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
                 }
-                RedisCommand::XRange { key, start_time, end_time, start_sequence, end_sequence } => {
-
-                    match self.database.get_mut(&key) {
-                        None => {
-                            CommandOutcome::Done(Resp::Array(Vec::new()))
-                        }
-                        Some(kv) => {
-                            if let ValueType::Stream( stream) =&mut  kv.value {
-                                let entries = stream.get_range(start_time, end_time, start_sequence, end_sequence);
-                                CommandOutcome::Done(entries)
-                            } else {
-                                CommandOutcome::Done(Resp::Error(
+                RedisCommand::XRange {
+                    key,
+                    start_time,
+                    end_time,
+                    start_sequence,
+                    end_sequence,
+                } => match self.database.get_mut(&key) {
+                    None => CommandOutcome::Done(Resp::Array(Vec::new())),
+                    Some(kv) => {
+                        if let ValueType::Stream(stream) = &mut kv.value {
+                            let entries = stream.get_range(
+                                start_time,
+                                end_time,
+                                start_sequence,
+                                end_sequence,
+                            );
+                            CommandOutcome::Done(entries)
+                        } else {
+                            CommandOutcome::Done(Resp::Error(
                                     b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
                                 ))
-                            }
                         }
                     }
-                }
+                },
                 RedisCommand::XAdd { key, fields, id } => {
                     let stream = self
                         .database
                         .entry(key.clone())
                         .or_insert_with(|| KeyValue::new(None, ValueType::stream()));
 
-                    if let ValueType::Stream( stream) = &mut stream.value {
+                    if let ValueType::Stream(stream) = &mut stream.value {
                         match stream.add_entry(fields, id) {
                             Ok(new_id) => {
                                 let id_str = new_id.get_id_string();
@@ -99,7 +123,7 @@ impl DB {
                             }
                             Err(err) => CommandOutcome::Done(Resp::Error(err.into_bytes())),
                         }
-                    }else {
+                    } else {
                         CommandOutcome::Done(Resp::Error(
                             b"WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_vec(),
