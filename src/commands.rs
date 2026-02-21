@@ -69,6 +69,14 @@ pub enum RedisCommand {
     },
 }
 impl RedisCommand {
+    fn print_commands(cmds: &[Vec<u8>]) {
+        let readable: Vec<String> = cmds
+            .iter()
+            .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+            .collect();
+
+        println!("Command: {:?}", readable);
+    }
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
         if cmds.is_empty() {
             return Err("Empty command".to_string());
@@ -80,6 +88,7 @@ impl RedisCommand {
 
         match command_name.as_str() {
             "xread" => {
+                Self::print_commands(&cmds);
                 let timeout = None;
                 let mut streams = Vec::new();
                 let index = cmds.iter().position(|x| {
@@ -145,8 +154,7 @@ impl RedisCommand {
                         }
                     }
                 }
-
-                Ok(RedisCommand::XRead { streams, timeout })
+                Ok(RedisCommand::XRead { streams,timeout: blocking_timeout })
             }
             "xrange" => {
                 let key = cmds[1].clone();

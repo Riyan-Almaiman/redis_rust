@@ -100,7 +100,8 @@ impl DB {
 
             let outcome = match command {
                 RedisCommand::XRead { streams, timeout } => {
-
+                    println!("{:?}", streams);
+                    println!("{:?}", timeout);
                     let mut result = Vec::new();
 
                     for streamread in &streams {
