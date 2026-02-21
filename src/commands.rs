@@ -89,7 +89,6 @@ impl RedisCommand {
         match command_name.as_str() {
             "xread" => {
                 Self::print_commands(&cmds);
-                let timeout = None;
                 let mut streams = Vec::new();
                 let index = cmds.iter().position(|x| {
                     match str::from_utf8(&x.clone())  {
