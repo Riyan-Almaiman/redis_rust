@@ -122,6 +122,7 @@ impl DB {
 
                     if !result.is_empty() {
                          Resp::Array(result);
+                        continue;
                     }
 
                     if let Some(timeout) = timeout {
