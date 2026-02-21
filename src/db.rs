@@ -121,7 +121,7 @@ impl DB {
                     }
 
                     if !result.is_empty() {
-                         Resp::Array(result);
+                        let _ = response_tx.send(Resp::Array(result));
                         continue;
                     }
 
