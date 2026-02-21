@@ -42,20 +42,25 @@ impl Stream {
     }
     pub fn get_range(&self, start_time: u64, end_time: u64, start_sequence: u64, end_sequence: u64) -> Resp {
         let mut results = Vec::new();
-        println!("{start_time}- {end_time}");
-        for (timestamp, sequences) in self.time_stamp_entries.range(start_time..=end_time) {
-            for (sequence, entry) in sequences.entries.range(start_sequence..=end_sequence) {
-                let id_str = entry.entry_id.get_id_string();
-                let mut fields_resp = Vec::new();
-                for (k, v) in &entry.fields {
-                    fields_resp.push(Resp::BulkString(k.clone()));
-                    fields_resp.push(Resp::BulkString(v.clone()));
-                }
 
-                results.push(Resp::Array(vec![
-                    Resp::BulkString(id_str.into_bytes()),
-                    Resp::Array(fields_resp),
-                ]));
+        for (&timestamp, sequences) in self.time_stamp_entries.range(start_time..=end_time) {
+            let current_start = if timestamp == start_time { start_sequence } else { 0 };
+            let current_end = if timestamp == end_time { end_sequence } else { u64::MAX };
+            
+            if current_start <= current_end {
+                for (_seq, entry) in sequences.entries.range(current_start..=current_end) {
+                    let id_str = entry.entry_id.get_id_string();
+                    let mut fields_resp = Vec::new();
+                    for (k, v) in &entry.fields {
+                        fields_resp.push(Resp::BulkString(k.clone()));
+                        fields_resp.push(Resp::BulkString(v.clone()));
+                    }
+
+                    results.push(Resp::Array(vec![
+                        Resp::BulkString(id_str.into_bytes()),
+                        Resp::Array(fields_resp),
+                    ]));
+                }
             }
         }
 
