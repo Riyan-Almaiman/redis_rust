@@ -23,7 +23,7 @@ pub struct StreamEntry {
 
 #[derive(Debug, Clone)]
 pub struct Sequences {
-    pub entries: Vec<StreamEntry>,
+    pub entries: BTreeMap<u64, StreamEntry>,
     pub sequence_count: u64,
 }
 
@@ -40,11 +40,11 @@ impl Stream {
             last_id: None,
         }
     }
-    pub fn get_range(&self, start_time: u64, end_time: u64) -> Resp {
+    pub fn get_range(&self, start_time: u64, end_time: u64, start_sequence: u64, end_sequence: u64) -> Resp {
         let mut results = Vec::new();
-        // .range() gives us an iterator over only the timestamps that fit!
+        println!("{start_time}- {end_time}");
         for (timestamp, sequences) in self.time_stamp_entries.range(start_time..=end_time) {
-            for entry in &sequences.entries {
+            for (sequence, entry) in sequences.entries.range(start_sequence..=end_sequence) {
                 let id_str = entry.entry_id.get_id_string();
                 let mut fields_resp = Vec::new();
                 for (k, v) in &entry.fields {
@@ -66,7 +66,6 @@ impl Stream {
         fields: Vec<(Vec<u8>, Vec<u8>)>,
         id_type: StreamEntryIdCommandType,
     ) -> Result<EntryId, String> {
-        // 1. Determine/Generate the ID
         let generated_id = match id_type {
             StreamEntryIdCommandType::Explicit { sequence, time } => {
                 let id = EntryId { sequence, time };
@@ -88,12 +87,12 @@ impl Stream {
             .time_stamp_entries
             .entry(generated_id.time)
             .or_insert(Sequences {
-                entries: vec![],
+                entries: BTreeMap::new(),
                 sequence_count: 0,
             });
 
-        sequences.entries.push(entry);
         sequences.sequence_count = generated_id.sequence;
+        sequences.entries.insert(generated_id.sequence, entry);
 
         self.last_id = Some(generated_id.clone());
 

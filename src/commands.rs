@@ -52,8 +52,10 @@ pub enum RedisCommand {
     },
     XRange {
         key: Vec<u8>,
-        start: u64,
-        end: u64,
+        start_time: u64,
+        end_time: u64,
+        start_sequence: u64,
+        end_sequence: u64,
     }
 }
 impl RedisCommand {
@@ -67,27 +69,24 @@ impl RedisCommand {
             .map_err(|_| "Invalid UTF-8 in command")?;
 
         match command_name.as_str() {
-            "xrange"=> {
+            "xrange" => {
                 let key = cmds[1].clone();
-                if(cmds.len() != 4) {
-                    return Err("Invalid XRANGE command".to_string());
-                }
+                let start_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
+                let end_str = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
 
-                let start = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
-                let (time_str, seq_str) = start.split_once('-').ok_or("Invalid ID format")?;
+                let (start_time, start_seq) = if let Some((t, s)) = start_str.split_once('-') {
+                    (t.parse::<u64>().map_err(|_| "Err")?, s.parse::<u64>().map_err(|_| "Err")?)
+                } else {
+                    (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
+                };
 
-                let start = time_str
-                    .parse::<u64>()
-                    .map_err(|_| "Invalid timestamp")?;
-                let end = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
-                let (time_str, seq_str) = end.split_once('-').ok_or("Invalid ID format")?;
+                let (end_time, end_seq) = if let Some((t, s)) = end_str.split_once('-') {
+                    (t.parse::<u64>().map_err(|_| "Err")?, s.parse::<u64>().map_err(|_| "Err")?)
+                } else {
+                    (end_str.parse::<u64>().map_err(|_| "Err")?, u64::MAX)
+                };
 
-
-                let end = time_str
-                    .parse::<u64>()
-                    .map_err(|_| "Invalid timestamp")?;
-
-                return Ok(XRange {key, start, end})
+                return Ok(XRange { key, start_time, end_time, start_sequence: start_seq, end_sequence: end_seq });
             }
             "xadd" => {
                 if cmds.len() < 5 || (cmds.len() - 3) % 2 != 0 {

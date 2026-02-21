@@ -67,7 +67,7 @@ impl DB {
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
                 }
-                RedisCommand::XRange { key, start, end } => {
+                RedisCommand::XRange { key, start_time, end_time, start_sequence, end_sequence } => {
 
                     match self.database.get_mut(&key) {
                         None => {
@@ -75,7 +75,7 @@ impl DB {
                         }
                         Some(kv) => {
                             if let ValueType::Stream( stream) =&mut  kv.value {
-                                let entries = stream.get_range(start, end);
+                                let entries = stream.get_range(start_time, end_time, start_sequence, end_sequence);
                                 CommandOutcome::Done(entries)
                             } else {
                                 CommandOutcome::Done(Resp::Error(
