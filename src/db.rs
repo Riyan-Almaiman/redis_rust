@@ -1,3 +1,5 @@
+use crate::blocking_list::{BlockingClient, BlockingList};
+use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::commands::RedisCommand;
 use crate::lists::List;
 use crate::resp::Resp;
@@ -10,6 +12,8 @@ use uuid::Uuid;
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
     pub receiver: mpsc::Receiver<Client>,
+    pub blocked_list: BlockingList,
+    pub blocking_streams: BlockingStreams,
     pub sender: mpsc::Sender<Client>,
 }
 #[derive(Debug)]
@@ -18,16 +22,6 @@ pub struct Client {
     pub timeout: Option<Duration>,
     pub response_tx: oneshot::Sender<Resp>,
     pub command: RedisCommand,
-}
-
-#[derive(Debug, Clone)]
-pub enum CommandOutcome {
-    Done(Resp),
-    Blocked {
-        keys: Vec<Vec<u8>>,
-        timeout: f64,
-        id: Uuid,
-    },
 }
 
 pub struct KeyValue {
@@ -47,6 +41,50 @@ impl DB {
             database: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
+            blocked_list: BlockingList {
+                blocked_list: Default::default(),
+                waiters: HashMap::new(),
+            },
+            blocking_streams: BlockingStreams {
+                waiters: HashMap::new(),
+                clients: HashMap::new(),
+            },
+        }
+    }
+    fn wake_stream_client(&mut self, client_id: Uuid) {
+
+        if let Some(client) = self.blocking_streams.clients.remove(&client_id) {
+
+            // Remove from all wait queues
+            for q in self.blocking_streams.waiters.values_mut() {
+                q.retain(|id| *id != client_id);
+            }
+
+            let mut result = Vec::new();
+
+            for wait in &client.waits {
+                if let Some(kv) = self.database.get(&wait.key) {
+                    if let ValueType::Stream(stream) = &kv.value {
+                        let entries = stream.get_range(
+                            wait.time,
+                            u64::MAX,
+                            wait.sequence,
+                            u64::MAX,
+                        );
+
+                        if let Resp::Array(ref arr) = entries {
+                            if !arr.is_empty() {
+                                result.push(Resp::Array(vec![
+                                    Resp::BulkString(wait.key.clone()),
+                                    entries,
+                                ]));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = client.response_tx.send(Resp::Array(result));
         }
     }
 
@@ -60,31 +98,84 @@ impl DB {
             } = request;
 
             let outcome = match command {
-                RedisCommand::XRead{ streams} =>{
+                RedisCommand::XRead { streams, timeout } => {
+
                     let mut result = Vec::new();
-                    for streamread in streams {
-                        match self.database.get_mut(&streamread.key) {
-                            None => (),
-                            Some(kv) => {
-                                if let ValueType::Stream(stream) = &mut kv.value {
-                                    let  stream_result = Resp::Array(vec![Resp::BulkString(streamread.key), stream.get_range(streamread.time, u64::MAX, streamread.sequence, u64::MAX)]);
-                                    result.push(stream_result);
-                                } else {
-                                    CommandOutcome::Done(Resp::Error(
-                                        b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
-                                    ));
+
+                    for streamread in &streams {
+                        if let Some(kv) = self.database.get(&streamread.key) {
+                            if let ValueType::Stream(stream) = &kv.value {
+                                let entries = stream.get_range(
+                                    streamread.time,
+                                    u64::MAX,
+                                    streamread.sequence,
+                                    u64::MAX,
+                                );
+
+                                if let Resp::Array(ref arr) = entries {
+                                    if !arr.is_empty() {
+                                        result.push(Resp::Array(vec![
+                                            Resp::BulkString(streamread.key.clone()),
+                                            entries,
+                                        ]));
+                                    }
                                 }
                             }
                         }
                     }
-                    CommandOutcome::Done(Resp::Array(result))
+
+                    if !result.is_empty() {
+                         Resp::Array(result);
+                    }
+
+                    if let Some(timeout) = timeout {
+
+                        let waits = streams.iter().map(|s| StreamWait {
+                            key: s.key.clone(),
+                            time: s.time,
+                            sequence: s.sequence,
+                        }).collect();
+
+                        let client = BlockingStreamClient {
+                            id: client_id,
+                            response_tx,
+                            waits,
+                        };
+
+                        for wait in &client.waits {
+                            self.blocking_streams
+                                .waiters
+                                .entry(wait.key.clone())
+                                .or_default()
+                                .push_back(client_id);
+                        }
+
+                        self.blocking_streams.clients.insert(client_id, client);
+
+                        if timeout > 0.0 {
+                            let sender_clone = self.sender.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
+                                let _ = sender_clone.send(Client {
+                                    client_id,
+                                    timeout: None,
+                                    response_tx: oneshot::channel().0,
+                                    command: RedisCommand::InternalTimeoutCleanup { client_id },
+                                }).await;
+                            });
+                        }
+
+                        continue;
+                    }
+
+                    Resp::NullBulkString
                 }
                 RedisCommand::Type(key) => {
                     let type_str = match self.database.get(&key) {
                         None => b"none".as_slice(),
                         Some(kv) => kv.value.get_value_type(),
                     };
-                    CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
+                    Resp::SimpleString(type_str.to_vec())
                 }
                 RedisCommand::XRange {
                     key,
@@ -93,7 +184,7 @@ impl DB {
                     start_sequence,
                     end_sequence,
                 } => match self.database.get_mut(&key) {
-                    None => CommandOutcome::Done(Resp::Array(Vec::new())),
+                    None => Resp::Array(Vec::new()),
                     Some(kv) => {
                         if let ValueType::Stream(stream) = &mut kv.value {
                             let entries = stream.get_range(
@@ -102,11 +193,11 @@ impl DB {
                                 start_sequence,
                                 end_sequence,
                             );
-                            CommandOutcome::Done(entries)
+                            entries
                         } else {
-                            CommandOutcome::Done(Resp::Error(
+                            Resp::Error(
                                     b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
-                                ))
+                                )
                         }
                     }
                 },
@@ -119,16 +210,43 @@ impl DB {
                     if let ValueType::Stream(stream) = &mut stream.value {
                         match stream.add_entry(fields, id) {
                             Ok(new_id) => {
+
                                 let id_str = new_id.get_id_string();
-                                CommandOutcome::Done(Resp::BulkString(id_str.into_bytes()))
+
+                                // WAKE BLOCKED STREAM CLIENTS
+                                if let Some(queue) = self.blocking_streams.waiters.get(&key) {
+
+                                    let mut to_wake = Vec::new();
+
+                                    for client_id in queue {
+                                        if let Some(client) = self.blocking_streams.clients.get(client_id) {
+
+                                            if let Some(wait) = client.waits.iter()
+                                                .find(|w| w.key == key) {
+
+                                                if new_id.time > wait.time ||
+                                                    (new_id.time == wait.time && new_id.sequence > wait.sequence)
+                                                {
+                                                    to_wake.push(*client_id);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    for client_id in to_wake {
+                                        self.wake_stream_client(client_id);
+                                    }
+                                }
+
+                                Resp::BulkString(id_str.into_bytes())
                             }
-                            Err(err) => CommandOutcome::Done(Resp::Error(err.into_bytes())),
+                            Err(err) => Resp::Error(err.into_bytes()),
                         }
                     } else {
-                        CommandOutcome::Done(Resp::Error(
+                        Resp::Error(
                             b"WRONGTYPE Operation against a key holding the wrong kind of value"
                                 .to_vec(),
-                        ))
+                        )
                     }
                 }
                 RedisCommand::Get(key) => {
@@ -138,17 +256,17 @@ impl DB {
 
                     if is_expired {
                         self.database.remove(&key);
-                        CommandOutcome::Done(Resp::NullBulkString)
+                        Resp::NullBulkString
                     } else {
                         match self.database.get(&key) {
                             Some(kv) => {
                                 if let ValueType::String(s) = &kv.value {
-                                    CommandOutcome::Done(Resp::BulkString(s.clone()))
+                                    Resp::BulkString(s.clone())
                                 } else {
-                                    CommandOutcome::Done(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()))
+                                    Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())
                                 }
                             }
-                            None => CommandOutcome::Done(Resp::NullBulkString),
+                            None => Resp::NullBulkString,
                         }
                     }
                 }
@@ -164,7 +282,7 @@ impl DB {
                     if let ValueType::List(ref mut list) = entry.value {
                         list.lpush(elements)
                     } else {
-                        CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
+                        Resp::Error(b"WRONGTYPE".to_vec())
                     }
                 }
                 RedisCommand::LLen(key) => {
@@ -172,64 +290,77 @@ impl DB {
                         if let ValueType::List(ref list) = kv.value {
                             list.llen()
                         } else {
-                            CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
+                            Resp::Error(b"WRONGTYPE".to_vec())
                         }
                     } else {
-                        CommandOutcome::Done(Resp::Integer(0))
+                        Resp::Integer(0)
                     }
                 }
-                RedisCommand::Ping => CommandOutcome::Done(Resp::SimpleString(b"PONG".to_vec())),
-                RedisCommand::Echo(data) => CommandOutcome::Done(Resp::BulkString(data)),
+                RedisCommand::Ping => Resp::SimpleString(b"PONG".to_vec()),
+                RedisCommand::Echo(data) => Resp::BulkString(data),
                 RedisCommand::BLPop { keys, timeout } => {
-                    let mut satisfied = false;
-                    // Wrap the sender so we can "take" it once
-                    let mut tx_wrapper = Some(response_tx);
-
+                    let mut found = None;
                     for key in &keys {
                         if let Some(kv) = self.database.get_mut(key) {
                             if let ValueType::List(ref mut list) = kv.value {
-                                if let Some(tx) = tx_wrapper.take() {
-                                    list.try_blpop(client_id, tx, timeout, self.sender.clone());
-                                    satisfied = true;
+                                let resp = list.lpop(key, 1);
+
+                                if !matches!(resp, Resp::NullBulkString) {
+                                    found = Some(Resp::Array(vec![
+                                        Resp::BulkString(key.clone()),
+                                        resp,
+                                    ]));
+                                    break;
                                 }
-                                break;
+                            }
+                        }
+                    }
+                    match found {
+                        Some(found) => {
+                            response_tx.send(found).unwrap();
+                            continue;
+                        }
+                        None => {
+                            let client = BlockingClient {
+                                id: client_id,
+                                response_tx,
+                            };
+
+                            self.blocked_list.register(keys, client);
+                            if timeout > 0.0 {
+                                let sender_clone = self.sender.clone();
+                                let id = client_id;
+
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
+
+                                    let _ = sender_clone
+                                        .send(Client {
+                                            client_id: id,
+                                            timeout: None,
+                                            response_tx: oneshot::channel().0,
+                                            command: RedisCommand::InternalTimeoutCleanup {
+                                                client_id: id,
+                                            },
+                                        })
+                                        .await;
+                                });
                             }
                         }
                     }
 
-                    if !satisfied {
-                        if let Some(tx) = tx_wrapper.take() {
-                            let first_key = keys[0].clone();
-                            let mut new_list = List::new(first_key.clone());
-                            new_list.create_blocking_client(
-                                &keys,
-                                timeout,
-                                client_id,
-                                tx,
-                                self.sender.clone(),
-                            );
-
-                            self.database.insert(
-                                first_key,
-                                KeyValue {
-                                    expiry: None,
-                                    value: ValueType::List(new_list),
-                                },
-                            );
-                        }
-                    }
                     continue;
                 }
-                RedisCommand::InternalTimeoutCleanup { key, client_id } => {
-                    if let Some(kv) = self.database.get_mut(key.as_bytes()) {
-                        if let ValueType::List(ref mut list) = kv.value {
-                            if let Some(blocked_client) =
-                                list.blocking_clients.shift_remove(&client_id)
-                            {
-                                let _ = blocked_client.response_tx.send(Resp::NullArray);
-                            }
+                RedisCommand::InternalTimeoutCleanup { client_id, .. } => {
+                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&client_id)
+                    {
+                        for queue in self.blocked_list.waiters.values_mut() {
+                            queue.retain(|id| *id != client_id);
                         }
+
+                        let _ = blocked_client.response_tx.send(Resp::NullArray);
                     }
+
                     continue;
                 }
                 RedisCommand::LRange { key, start, stop } => {
@@ -237,10 +368,10 @@ impl DB {
                         if let ValueType::List(ref list) = kv.value {
                             list.get_list_range(start, stop)
                         } else {
-                            CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
+                            Resp::Error(b"WRONGTYPE".to_vec())
                         }
                     } else {
-                        CommandOutcome::Done(Resp::Array(vec![]))
+                        Resp::Array(vec![])
                     }
                 }
 
@@ -249,10 +380,10 @@ impl DB {
                         if let ValueType::List(ref mut list) = kv.value {
                             list.lpop(&key, count)
                         } else {
-                            CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
+                            Resp::Error(b"WRONGTYPE".to_vec())
                         }
                     } else {
-                        CommandOutcome::Done(Resp::NullBulkString)
+                        Resp::NullBulkString
                     }
                 }
 
@@ -266,7 +397,7 @@ impl DB {
                             expiry: expiry_time,
                         },
                     );
-                    CommandOutcome::Done(Resp::SimpleString(b"OK".to_vec()))
+                    Resp::SimpleString(b"OK".to_vec())
                 }
 
                 RedisCommand::RPush { key, elements } => {
@@ -278,38 +409,23 @@ impl DB {
                             value: ValueType::List(List::new(key.clone())),
                         });
 
-                    if let ValueType::List(ref mut list) = entry.value {
-                        list.rpush(elements)
+                    if let ValueType::List(list) = &mut entry.value {
+                        let mut length = list.list.len();
+                        for element in elements {
+                            length += 1;
+                            if !self.blocked_list.wake_one(&key, element.clone()) {
+                                list.rpush(vec![element]);
+                            }
+                        }
+
+                        Resp::Integer(length)
                     } else {
-                        CommandOutcome::Done(Resp::Error(b"WRONGTYPE".to_vec()))
+                        Resp::Error(b"WRONGTYPE".to_vec())
                     }
                 }
             };
 
-            match outcome {
-                CommandOutcome::Done(resp) => {
-                    let _ = response_tx.send(resp);
-                }
-                CommandOutcome::Blocked { keys, timeout, id } => {
-                    let entry = self
-                        .database
-                        .entry(keys[0].clone())
-                        .or_insert_with(|| KeyValue {
-                            expiry: None,
-                            value: ValueType::List(List::new(keys[0].clone())),
-                        });
-
-                    if let ValueType::List(ref mut list) = entry.value {
-                        list.create_blocking_client(
-                            &keys,
-                            timeout,
-                            id,
-                            response_tx,
-                            self.sender.clone(),
-                        );
-                    }
-                }
-            }
+            let _ = response_tx.send(outcome);
         }
     }
 }

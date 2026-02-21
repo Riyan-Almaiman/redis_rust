@@ -16,6 +16,8 @@ mod db;
 mod stream;
 mod valuetype;
 mod xrange;
+mod blocking_list;
+mod blocking_stream;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

@@ -1,5 +1,4 @@
 use crate::commands::RedisCommand::XRange;
-use std::ascii::AsciiExt;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -35,7 +34,6 @@ pub enum RedisCommand {
         elements: Vec<Vec<u8>>,
     },
     InternalTimeoutCleanup {
-        key: String,
         client_id: Uuid,
     },
     LRange {
@@ -67,6 +65,7 @@ pub enum RedisCommand {
     },
     XRead {
         streams: Vec<StreamRead>,
+        timeout: Option<f64>,
     },
 }
 impl RedisCommand {
@@ -81,6 +80,7 @@ impl RedisCommand {
 
         match command_name.as_str() {
             "xread" => {
+                let timeout = None;
                 let mut streams = Vec::new();
                 let index = cmds.iter().position(|x| {
                     match str::from_utf8(&x.clone())  {
@@ -89,6 +89,30 @@ impl RedisCommand {
                     }
 
                 });
+                let blocking_index = cmds.iter().position(|x| {
+                    match str::from_utf8(&x.clone())  {
+                        Ok(s) => s.to_ascii_lowercase() == "block",
+                        Err(_) => false,
+                    }
+
+                });
+                let  blocking_timeout: Option<f64> = match blocking_index  {
+                    Some(timeout) =>{
+                        let timeout_str = str::from_utf8(&cmds[timeout +1]);
+                        if cmds.len() <= timeout + 1{
+                            return Err("No timeout value".to_string());
+                        }
+                         match  timeout_str{
+                            Ok(time) =>{
+                                Some(time.parse::<f64>()
+                                    .map_err(|_| "Invalid float value")?)
+                            }
+                            Err(e) => return Err(e.to_string()),
+                        }
+                    },
+                    None => None,
+                };
+
                 match index {
                     None => return Err("No streams found".to_string()),
                     Some(index) => {
@@ -122,7 +146,7 @@ impl RedisCommand {
                     }
                 }
 
-                Ok(RedisCommand::XRead { streams })
+                Ok(RedisCommand::XRead { streams, timeout })
             }
             "xrange" => {
                 let key = cmds[1].clone();
