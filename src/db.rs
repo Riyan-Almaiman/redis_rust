@@ -71,6 +71,7 @@ impl DB {
                             wait.sequence,
                             u64::MAX,
                         );
+                        println!("{:?}", entries);
 
                         if let Resp::Array(ref arr) = entries {
                             if !arr.is_empty() {

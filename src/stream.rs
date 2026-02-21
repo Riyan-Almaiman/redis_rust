@@ -78,9 +78,7 @@ impl Stream {
                 }
             }
         }
-        if results.is_empty() {
-            return Resp::NullArray;
-        }
+
         Resp::Array(results)
     }
     pub fn add_entry(
