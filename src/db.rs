@@ -152,7 +152,7 @@ impl DB {
                         if timeout > 0.0 {
                             let sender_clone = self.sender.clone();
                             tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
+                                tokio::time::sleep(Duration::from_millis(timeout as u64)).await;
                                 let _ = sender_clone.send(Client {
                                     client_id,
                                     timeout: None,
@@ -349,23 +349,30 @@ impl DB {
 
                     continue;
                 }
-                RedisCommand::InternalTimeoutCleanup { client_id, .. } => {
-                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&client_id) {
+                RedisCommand::InternalTimeoutCleanup { client_id: target_id, .. } => {
+                    println!("DEBUG: Attempting cleanup for client {}", target_id);
+
+                    // Check Lists
+                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&target_id) {
+                        println!("DEBUG: Found list blocker, removing...");
                         for queue in self.blocked_list.waiters.values_mut() {
-                            queue.retain(|id| *id != client_id);
+                            queue.retain(|id| *id != target_id);
                         }
                         let _ = blocked_client.response_tx.send(Resp::NullArray);
                     }
 
-                    if let Some(stream_client) = self.blocking_streams.clients.remove(&client_id) {
+                    // Check Streams
+                    if let Some(stream_client) = self.blocking_streams.clients.remove(&target_id) {
+                        println!("DEBUG: Found stream blocker, removing...");
                         for queue in self.blocking_streams.waiters.values_mut() {
-                            queue.retain(|id| *id != client_id);
+                            queue.retain(|id| *id != target_id);
                         }
-
                         let _ = stream_client.response_tx.send(Resp::NullBulkString);
+                    } else {
+                        println!("DEBUG: No stream client found with ID {}", target_id);
                     }
 
-                    continue;
+                    continue; // This prevents the 'response_tx.send(outcome)' at the bottom
                 }
                 RedisCommand::LRange { key, start, stop } => {
                     if let Some(kv) = self.database.get(&key) {
