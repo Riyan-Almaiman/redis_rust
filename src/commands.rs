@@ -267,7 +267,8 @@ impl RedisCommand {
         let start_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
         let end_str = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
 
-        let (start_time, start_seq) = if start_str == "-" || start_str == "+" {
+        let (start_time, start_seq) =
+            if start_str == "-" || start_str == "+" {
             match start_str {
                 "-" => (0, 0),
                 "+" => (u64::MAX, u64::MAX),
@@ -282,8 +283,9 @@ impl RedisCommand {
             (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
         };
 
-        let (end_time, end_seq) = if end_str == "-" || end_str == "+" {
-            match start_str {
+        let (end_time, end_seq) = 
+            if end_str == "-" || end_str == "+" {
+            match end_str {
                 "-" => (0, 0),
                 "+" => (u64::MAX, u64::MAX),
                 _ => panic!("idk how this would happen"),
