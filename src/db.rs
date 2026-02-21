@@ -158,6 +158,7 @@ impl DB {
                                     response_tx: oneshot::channel().0,
                                     command: RedisCommand::InternalTimeoutCleanup { client_id },
                                 }).await;
+
                             });
                         }
 
@@ -348,13 +349,19 @@ impl DB {
                     continue;
                 }
                 RedisCommand::InternalTimeoutCleanup { client_id, .. } => {
-                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&client_id)
-                    {
+                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&client_id) {
                         for queue in self.blocked_list.waiters.values_mut() {
                             queue.retain(|id| *id != client_id);
                         }
-
                         let _ = blocked_client.response_tx.send(Resp::NullArray);
+                    }
+
+                    if let Some(stream_client) = self.blocking_streams.clients.remove(&client_id) {
+                        for queue in self.blocking_streams.waiters.values_mut() {
+                            queue.retain(|id| *id != client_id);
+                        }
+
+                        let _ = stream_client.response_tx.send(Resp::NullBulkString);
                     }
 
                     continue;
