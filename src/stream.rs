@@ -39,6 +39,13 @@ impl Stream {
             time_stamp_entries: BTreeMap::new(),
             last_id: None,
         }
+    }pub fn get_last_id(&self) -> (u64, u64) {
+        if let Some((&ts, sequences)) = self.time_stamp_entries.iter().next_back() {
+            if let Some((&seq, _)) = sequences.entries.iter().next_back() {
+                return (ts, seq);
+            }
+        }
+        (0, 0)
     }
     pub fn get_read_streams(
         &self,
@@ -56,7 +63,7 @@ impl Stream {
             };
 
             for (&seq, entry) in sequences.entries.range(current_start..) {
-          
+
                 if timestamp == start_time && seq == start_sequence {
                     continue;
                 }

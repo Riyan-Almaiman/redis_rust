@@ -98,20 +98,44 @@ impl DB {
 
             let outcome = match command {
                 RedisCommand::XRead { streams, timeout } => {
+                    let mut resolved_streams = Vec::new();
+
+                    for s_read in &streams {
+                        let (t, s) = if s_read.id == "$" {
+                            if let Some(kv) = self.database.get(&s_read.key) {
+                                if let ValueType::Stream(stream) = &kv.value {
+                                    stream.get_last_id()
+                                } else {
+                                    (0, 0)
+                                }
+                            } else {
+                                (0, 0)
+                            }
+                        } else {
+                            s_read.id.split_once('-')
+                                .map(|(t_str, s_str)| (
+                                    t_str.parse::<u64>().unwrap_or(0),
+                                    s_str.parse::<u64>().unwrap_or(0)
+                                ))
+                                .unwrap_or((0, 0))
+                        };
+
+                        resolved_streams.push(StreamWait {
+                            key: s_read.key.clone(),
+                            time: t,
+                            sequence: s,
+                        });
+                    }
+
                     let mut result = Vec::new();
-
-                    for streamread in &streams {
-                        if let Some(kv) = self.database.get(&streamread.key) {
+                    for wait in &resolved_streams {
+                        if let Some(kv) = self.database.get(&wait.key) {
                             if let ValueType::Stream(stream) = &kv.value {
-                                let entries = stream.get_read_streams(
-                                    streamread.time,
-                                    streamread.sequence,
-                                );
-
+                                let entries = stream.get_read_streams(wait.time, wait.sequence);
                                 if let Resp::Array(ref arr) = entries {
                                     if !arr.is_empty() {
                                         result.push(Resp::Array(vec![
-                                            Resp::BulkString(streamread.key.clone()),
+                                            Resp::BulkString(wait.key.clone()),
                                             entries,
                                         ]));
                                     }
@@ -125,48 +149,38 @@ impl DB {
                         continue;
                     }
 
-                    if let Some(timeout) = timeout {
-
-                        let waits = streams.iter().map(|s| StreamWait {
-                            key: s.key.clone(),
-                            time: s.time,
-                            sequence: s.sequence,
-                        }).collect();
-
+                    if let Some(timeout_ms) = timeout {
                         let client = BlockingStreamClient {
                             id: client_id,
                             response_tx,
-                            waits,
+                            waits: resolved_streams,
                         };
 
                         for wait in &client.waits {
-                            self.blocking_streams
-                                .waiters
+                            self.blocking_streams.waiters
                                 .entry(wait.key.clone())
                                 .or_default()
                                 .push_back(client_id);
                         }
-
                         self.blocking_streams.clients.insert(client_id, client);
 
-                        if timeout > 0.0 {
+                        if timeout_ms > 0.0 {
                             let sender_clone = self.sender.clone();
                             tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_millis(timeout as u64)).await;
+                                tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
                                 let _ = sender_clone.send(Client {
                                     client_id,
                                     timeout: None,
                                     response_tx: oneshot::channel().0,
                                     command: RedisCommand::InternalTimeoutCleanup { client_id },
                                 }).await;
-
                             });
                         }
-
                         continue;
                     }
 
-                    Resp::NullBulkString
+                    let _ = response_tx.send(Resp::NullBulkString);
+                    continue;
                 }
                 RedisCommand::Type(key) => {
                     let type_str = match self.database.get(&key) {

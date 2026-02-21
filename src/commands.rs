@@ -12,8 +12,7 @@ pub enum StreamEntryIdCommandType {
 
 pub struct StreamRead {
     pub key: Vec<u8>,
-    pub time: u64,
-    pub sequence: u64,
+    pub id: String
 }
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
@@ -69,7 +68,7 @@ pub enum RedisCommand {
     },
 }
 impl RedisCommand {
-   
+
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
         if cmds.is_empty() {
             return Err("Empty command".to_string());
@@ -81,71 +80,34 @@ impl RedisCommand {
 
         match command_name.as_str() {
             "xread" => {
-                let mut streams = Vec::new();
-                let index = cmds.iter().position(|x| {
-                    match str::from_utf8(&x.clone())  {
-                        Ok(s) => s.to_ascii_lowercase() == "streams",
-                        Err(_) => false,
-                    }
+                let streams_pos = cmds.iter().position(|c| String::from_utf8_lossy(c).to_lowercase() == "streams")
+                    .ok_or("Missing STREAMS keyword")?;
 
-                });
-                let blocking_index = cmds.iter().position(|x| {
-                    match str::from_utf8(&x.clone())  {
-                        Ok(s) => s.to_ascii_lowercase() == "block",
-                        Err(_) => false,
-                    }
+                let block_pos = cmds.iter().position(|c| String::from_utf8_lossy(c).to_lowercase() == "block");
 
-                });
-                let  blocking_timeout: Option<f64> = match blocking_index  {
-                    Some(timeout) =>{
-                        let timeout_str = str::from_utf8(&cmds[timeout +1]);
-                        if cmds.len() <= timeout + 1{
-                            return Err("No timeout value".to_string());
-                        }
-                         match  timeout_str{
-                            Ok(time) =>{
-                                Some(time.parse::<f64>()
-                                    .map_err(|_| "Invalid float value")?)
-                            }
-                            Err(e) => return Err(e.to_string()),
-                        }
-                    },
-                    None => None,
+                let timeout = if let Some(pos) = block_pos {
+                    let t_str = String::from_utf8_lossy(&cmds[pos + 1]);
+                    Some(t_str.parse::<f64>().map_err(|_| "Invalid timeout")?)
+                } else {
+                    None
                 };
 
-                match index {
-                    None => return Err("No streams found".to_string()),
-                    Some(index) => {
-                        if (cmds[index..].len()-1) % 2 != 0 {
-                            return Err("invalid stream arguments".to_string());
-                        } else {
-                            let (key, id) = &cmds[index+1..].split_at(cmds[index+1..].len() /2);
-                            for i in 0..&cmds[index+1..].len()/2 {
-                                let (start_time, start_sequence) =
-                                    match str::from_utf8(&id[i])
-                                    .map_err(|e| e.to_string())?
-                                    .split_once('-')
-                                {
-                                    None => return Err("Invalid Id".to_string()),
-                                    Some((time, seq)) => (time.parse(), seq.parse()),
-                                };
-                                if let (Ok(start_time), Ok(start_sequence)) =
-                                    (start_time, start_sequence)
-                                {
-                                    streams.push(StreamRead {
-                                        key: key[i].clone(),
-                                        time: start_time,
-                                        sequence: start_sequence,
-                                    });
-                                } else {
-                                    return Err("Invalid Id".to_string());
-                                }
-                            }
+                let args = &cmds[streams_pos + 1..];
+                let half = args.len() / 2;
+                if args.len() % 2 != 0 { return Err("Invalid stream/id pairs".into()); }
 
-                        }
-                    }
+                let mut streams = Vec::new();
+                for i in 0..half {
+                    let key = args[i].clone();
+                    let id_str = String::from_utf8_lossy(&args[i + half]);
+
+                    streams.push(StreamRead {
+                        key,
+                        id: id_str.to_string(), 
+                    });
                 }
-                Ok(RedisCommand::XRead { streams,timeout: blocking_timeout })
+
+                Ok(RedisCommand::XRead { streams, timeout })
             }
             "xrange" => {
                 let key = cmds[1].clone();
