@@ -282,7 +282,7 @@ impl RedisCommand {
             (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
         };
 
-        let (end_time, end_seq) = if start_str == "-" || start_str == "+" {
+        let (end_time, end_seq) = if end_str == "-" || end_str == "+" {
             match start_str {
                 "-" => (0, 0),
                 "+" => (u64::MAX, u64::MAX),
