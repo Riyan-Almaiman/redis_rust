@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::commands::RedisCommand::XRange;
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub enum StreamEntryIdCommandType {
@@ -57,7 +57,7 @@ pub enum RedisCommand {
         end_time: u64,
         start_sequence: u64,
         end_sequence: u64,
-    }
+    },
 }
 impl RedisCommand {
     pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
@@ -263,30 +263,46 @@ impl RedisCommand {
         }
     }
 
-    fn parse_xrange(key: Vec<u8>, cmds: &[Vec<u8>])->Result<RedisCommand, String> {
+    fn parse_xrange(key: Vec<u8>, cmds: &[Vec<u8>]) -> Result<RedisCommand, String> {
         let start_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
         let end_str = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
 
-        let (start_time, start_seq) =
-            if start_str == "-" || start_str == "+"{
-                match start_str {
-                    "-" => (0, 0),
-                    "+" => (u64::MAX, u64::MAX),
-                    _ => panic!("idk how this would happen")
+        let (start_time, start_seq) = if start_str == "-" || start_str == "+" {
+            match start_str {
+                "-" => (0, 0),
+                "+" => (u64::MAX, u64::MAX),
+                _ => panic!("idk how this would happen"),
+            }
+        } else if let Some((t, s)) = start_str.split_once('-') {
+            (
+                t.parse::<u64>().map_err(|_| "Err")?,
+                s.parse::<u64>().map_err(|_| "Err")?,
+            )
+        } else {
+            (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
+        };
 
-                }
-            } else if  let Some((t, s)) = start_str.split_once('-') {
-                (t.parse::<u64>().map_err(|_| "Err")?, s.parse::<u64>().map_err(|_| "Err")?)
-            } else {
-                (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
-            };
-
-        let (end_time, end_seq) = if let Some((t, s)) = end_str.split_once('-') {
-            (t.parse::<u64>().map_err(|_| "Err")?, s.parse::<u64>().map_err(|_| "Err")?)
+        let (end_time, end_seq) = if start_str == "-" || start_str == "+" {
+            match start_str {
+                "-" => (0, 0),
+                "+" => (u64::MAX, u64::MAX),
+                _ => panic!("idk how this would happen"),
+            }
+        } else if let Some((t, s)) = end_str.split_once('-') {
+            (
+                t.parse::<u64>().map_err(|_| "Err")?,
+                s.parse::<u64>().map_err(|_| "Err")?,
+            )
         } else {
             (end_str.parse::<u64>().map_err(|_| "Err")?, u64::MAX)
         };
 
-        Ok(XRange { key, start_time, end_time, start_sequence: start_seq, end_sequence: end_seq })
+        Ok(XRange {
+            key,
+            start_time,
+            end_time,
+            start_sequence: start_seq,
+            end_sequence: end_seq,
+        })
     }
 }
