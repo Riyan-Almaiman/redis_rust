@@ -350,11 +350,9 @@ impl DB {
                     continue;
                 }
                 RedisCommand::InternalTimeoutCleanup { client_id: target_id, .. } => {
-                    println!("DEBUG: Attempting cleanup for client {}", target_id);
 
                     // Check Lists
                     if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&target_id) {
-                        println!("DEBUG: Found list blocker, removing...");
                         for queue in self.blocked_list.waiters.values_mut() {
                             queue.retain(|id| *id != target_id);
                         }
@@ -363,16 +361,14 @@ impl DB {
 
                     // Check Streams
                     if let Some(stream_client) = self.blocking_streams.clients.remove(&target_id) {
-                        println!("DEBUG: Found stream blocker, removing...");
                         for queue in self.blocking_streams.waiters.values_mut() {
                             queue.retain(|id| *id != target_id);
                         }
                         let _ = stream_client.response_tx.send(Resp::NullBulkString);
                     } else {
-                        println!("DEBUG: No stream client found with ID {}", target_id);
                     }
 
-                    continue; // This prevents the 'response_tx.send(outcome)' at the bottom
+                    continue; 
                 }
                 RedisCommand::LRange { key, start, stop } => {
                     if let Some(kv) = self.database.get(&key) {
