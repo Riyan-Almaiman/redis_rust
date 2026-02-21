@@ -1,6 +1,7 @@
-use crate::commands::{RedisCommand, StreamEntryIdCommandType};
+use crate::commands::RedisCommand;
 use crate::lists::List;
 use crate::resp::Resp;
+use crate::valuetype::ValueType;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -18,16 +19,7 @@ pub struct Client {
     pub response_tx: oneshot::Sender<Resp>,
     pub command: RedisCommand,
 }
-#[derive(Debug, Clone)]
-pub struct EntryId {
-    pub time: u64,
-    pub sequence: u64,
-}
-impl EntryId {
-    pub fn get_id_string(&self) -> String {
-        format!("{}-{}", self.time, self.sequence)
-    }
-}
+
 #[derive(Debug, Clone)]
 pub enum CommandOutcome {
     Done(Resp),
@@ -37,113 +29,10 @@ pub enum CommandOutcome {
         id: Uuid,
     },
 }
-#[derive(Debug, Clone)]
-pub struct StreamEntry {
-    pub entry_id: EntryId,
-    pub fields: Vec<(Vec<u8>, Vec<u8>)>,
-}
 
-#[derive(Debug, Clone)]
-pub struct Stream {
-    pub time_stamp_entries: HashMap<u64, Sequences>,
-    pub last_id: Option<EntryId>,
-}
-#[derive(Debug, Clone)]
-
-pub struct Sequences {
-    entries: Vec<StreamEntry>,
-    sequence_count: u64,
-}
-impl Stream {
-    pub fn new() -> Self {
-        Stream {
-            time_stamp_entries: HashMap::new(),
-            last_id: None,
-        }
-    }
-
-    pub fn add_entry(
-        &mut self,
-        fields: Vec<(Vec<u8>, Vec<u8>)>,
-        id_type: StreamEntryIdCommandType,
-    ) -> Result<EntryId, String> {
-        let generated_id = match id_type {
-            StreamEntryIdCommandType::Explicit { sequence, time } => {
-                let id = EntryId { sequence, time };
-                self.validate_new_entry_error(&id)?;
-                id
-            }
-            StreamEntryIdCommandType::GenerateTimeAndSequence => {
-                self.auto_generate_id()
-            }
-            StreamEntryIdCommandType::GenerateOnlySequence { time } => {
-                self.auto_generate_seq(time)?
-            }
-        };
-
-        let entry = StreamEntry { entry_id: generated_id.clone(), fields };
-
-        let sequences = self.time_stamp_entries.entry(generated_id.time).or_insert(Sequences {
-            entries: vec![],
-            sequence_count: 0,
-        });
-
-        sequences.entries.push(entry);
-        sequences.sequence_count = generated_id.sequence;
-        self.last_id = Some(generated_id.clone());
-
-        Ok(generated_id)
-    }
-
-
-    fn validate_new_entry_error(&self, new_id: &EntryId) -> Result<(), String> {
-        if new_id.time == 0 && new_id.sequence == 0 {
-            return Err("ERR The ID specified in XADD must be greater than 0-0".to_string());
-        }
-        if let Some(last) = &self.last_id {
-            if new_id.time < last.time || (new_id.time == last.time && new_id.sequence <= last.sequence) {
-                return Err("ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string());
-            }
-        }
-        Ok(())
-    }
-
-    fn auto_generate_id(&self) -> EntryId {
-        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64;
-        match &self.last_id {
-            Some(last) if now <= last.time => EntryId { time: last.time, sequence: last.sequence + 1 },
-            _ => EntryId { time: now, sequence: (now == 0) as u64 }
-        }
-    }
-
-    fn auto_generate_seq(&self, time: u64) -> Result<EntryId, String> {
-        let sequence = match &self.last_id {
-            Some(last) if time == last.time => last.sequence + 1,
-            _ if time == 0 => 1,
-            _ => 0,
-        };
-        let new_id = EntryId { time, sequence };
-        self.validate_new_entry_error(&new_id)?;
-        Ok(new_id)
-    }
-}
-enum ValueType {
-    String(Vec<u8>),
-    List(List),
-    Set,
-    ZSet,
-    Hash,
-    Stream(Stream),
-    VectorSet,
-}
-impl ValueType {
-    fn stream() -> Self {
-        ValueType::Stream(Stream::new())
-    }
-}
-struct KeyValue {
+pub struct KeyValue {
     expiry: Option<SystemTime>,
-    value: ValueType,
+    pub(crate) value: ValueType,
 }
 impl KeyValue {
     pub fn new(expiry: Option<SystemTime>, value: ValueType) -> Self {
@@ -174,14 +63,27 @@ impl DB {
                 RedisCommand::Type(key) => {
                     let type_str = match self.database.get(&key) {
                         None => b"none".as_slice(),
-                        Some(kv) => match kv.value {
-                            ValueType::String(_) => b"string".as_slice(),
-                            ValueType::List(_) => b"list".as_slice(),
-                            ValueType::Stream(_) => b"stream".as_slice(),
-                            _ => b"none".as_slice(),
-                        },
+                        Some(kv) => kv.value.get_value_type(),
                     };
                     CommandOutcome::Done(Resp::SimpleString(type_str.to_vec()))
+                }
+                RedisCommand::XRange { key, start, end } => {
+
+                    match self.database.get_mut(&key) {
+                        None => {
+                            CommandOutcome::Done(Resp::Array(Vec::new()))
+                        }
+                        Some(kv) => {
+                            if let ValueType::Stream( stream) =&mut  kv.value {
+                                let entries = stream.get_range(start, end);
+                                CommandOutcome::Done(entries)
+                            } else {
+                                CommandOutcome::Done(Resp::Error(
+                                    b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
+                                ))
+                            }
+                        }
+                    }
                 }
                 RedisCommand::XAdd { key, fields, id } => {
                     let stream = self
@@ -189,15 +91,13 @@ impl DB {
                         .entry(key.clone())
                         .or_insert_with(|| KeyValue::new(None, ValueType::stream()));
 
-                    if let ValueType::Stream(ref mut stream) = stream.value {
+                    if let ValueType::Stream( stream) = &mut stream.value {
                         match stream.add_entry(fields, id) {
                             Ok(new_id) => {
                                 let id_str = new_id.get_id_string();
                                 CommandOutcome::Done(Resp::BulkString(id_str.into_bytes()))
                             }
-                            Err(err) => {
-                                CommandOutcome::Done(Resp::Error(err.into_bytes()))
-                            }
+                            Err(err) => CommandOutcome::Done(Resp::Error(err.into_bytes())),
                         }
                     }else {
                         CommandOutcome::Done(Resp::Error(

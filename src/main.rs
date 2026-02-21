@@ -13,6 +13,8 @@ mod connection;
 mod lists;
 
 mod db;
+mod stream;
+mod valuetype;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
