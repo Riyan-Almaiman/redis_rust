@@ -65,11 +65,10 @@ impl DB {
             for wait in &client.waits {
                 if let Some(kv) = self.database.get(&wait.key) {
                     if let ValueType::Stream(stream) = &kv.value {
-                        let entries = stream.get_range(
+                        let entries = stream.get_read_streams(
+
                             wait.time,
-                            u64::MAX,
                             wait.sequence,
-                            u64::MAX,
                         );
 
                         if let Resp::Array(ref arr) = entries {
@@ -104,11 +103,9 @@ impl DB {
                     for streamread in &streams {
                         if let Some(kv) = self.database.get(&streamread.key) {
                             if let ValueType::Stream(stream) = &kv.value {
-                                let entries = stream.get_range(
+                                let entries = stream.get_read_streams(
                                     streamread.time,
-                                    u64::MAX,
                                     streamread.sequence,
-                                    u64::MAX,
                                 );
 
                                 if let Resp::Array(ref arr) = entries {

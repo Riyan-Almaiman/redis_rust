@@ -40,7 +40,43 @@ impl Stream {
             last_id: None,
         }
     }
+    pub fn get_read_streams(
+        &self,
+        start_time: u64,
+        start_sequence: u64,
+    ) -> Resp {
+        let mut results = Vec::new();
 
+        for (&timestamp, sequences) in self.time_stamp_entries.range(start_time..) {
+
+            let current_start = if timestamp == start_time {
+                start_sequence
+            } else {
+                0
+            };
+
+            for (&seq, entry) in sequences.entries.range(current_start..) {
+          
+                if timestamp == start_time && seq == start_sequence {
+                    continue;
+                }
+
+                let id_str = entry.entry_id.get_id_string();
+                let mut fields_resp = Vec::new();
+                for (k, v) in &entry.fields {
+                    fields_resp.push(Resp::BulkString(k.clone()));
+                    fields_resp.push(Resp::BulkString(v.clone()));
+                }
+
+                results.push(Resp::Array(vec![
+                    Resp::BulkString(id_str.into_bytes()),
+                    Resp::Array(fields_resp),
+                ]));
+            }
+        }
+
+        Resp::Array(results)
+    }
     pub fn get_range(
         &self,
         start_time: u64,
