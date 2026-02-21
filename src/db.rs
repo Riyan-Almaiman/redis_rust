@@ -67,7 +67,8 @@ impl DB {
                             None => (),
                             Some(kv) => {
                                 if let ValueType::Stream(stream) = &mut kv.value {
-                                    result.push(stream.get_range(streamread.time, u64::MAX, streamread.sequence, u64::MAX));
+                                    let  stream_result = Resp::Array(vec![Resp::BulkString(streamread.key), stream.get_range(streamread.time, u64::MAX, streamread.sequence, u64::MAX)]);
+                                    result.push(stream_result);
                                 } else {
                                     CommandOutcome::Done(Resp::Error(
                                         b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
