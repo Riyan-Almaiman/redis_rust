@@ -72,14 +72,18 @@ impl RedisCommand {
                 if(cmds.len() != 4) {
                     return Err("Invalid XRANGE command".to_string());
                 }
-                let start = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
 
-                let start = start
+                let start = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
+                let (time_str, seq_str) = start.split_once('-').ok_or("Invalid ID format")?;
+
+                let start = time_str
                     .parse::<u64>()
                     .map_err(|_| "Invalid timestamp")?;
                 let end = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
+                let (time_str, seq_str) = end.split_once('-').ok_or("Invalid ID format")?;
 
-                let end = end
+
+                let end = time_str
                     .parse::<u64>()
                     .map_err(|_| "Invalid timestamp")?;
 
