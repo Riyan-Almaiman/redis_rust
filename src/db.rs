@@ -111,10 +111,10 @@ impl DB {
 
                                 }
                                 else {
-                                    Resp::Error("invalid number".as_bytes().to_vec())
+                                    Resp::Error("ERR value is not an integer or out of range".as_bytes().to_vec())
                                 }
                             }  else {
-                                    Resp::Error("invalid number".as_bytes().to_vec())
+                                    Resp::Error("ERR value is not an integer or out of range".as_bytes().to_vec())
                                 }
                         
                         
