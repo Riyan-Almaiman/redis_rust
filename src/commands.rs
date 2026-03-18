@@ -69,13 +69,15 @@ pub enum RedisCommand {
         streams: Vec<StreamRead>,
         timeout: Option<f64>,
     },
+    Multi 
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
 
-            // ---------------- PING ----------------
             "ping" => Ok(RedisCommand::Ping),
+            "multi" => Ok(RedisCommand::Multi),
+
             "incr" => {
                                 if args.len() < 1 {
                     return Err("INCR requires an argument".into());

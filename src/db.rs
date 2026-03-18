@@ -93,6 +93,9 @@ impl DB {
             } = request;
 
             let outcome = match command {
+                RedisCommand::Multi => {
+                    Resp::SimpleString("OK".as_bytes().to_vec())
+                }
                 RedisCommand::Incr { key } => {
                   let item =   self.database.entry(key).or_insert(KeyValue {
                         expiry: None,
