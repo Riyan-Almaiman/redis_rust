@@ -1,6 +1,6 @@
 use crate::commands::StreamEntryIdCommandType;
 use crate::resp::Resp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -75,14 +75,14 @@ impl Stream {
                     fields_resp.push(Resp::BulkString(v.clone()));
                 }
 
-                results.push(Resp::Array(vec![
+                results.push(Resp::Array(VecDeque::from(vec![
                     Resp::BulkString(id_str.into_bytes()),
-                    Resp::Array(fields_resp),
-                ]));
+                    Resp::Array(VecDeque::from(fields_resp)),
+                ])));
             }
         }
 
-        Resp::Array(results)
+        Resp::Array(VecDeque::from(results))
     }
     pub fn get_range(
         &self,
@@ -108,21 +108,21 @@ impl Stream {
             if current_start <= current_end {
                 for (_seq, entry) in sequences.entries.range(current_start..=current_end) {
                     let id_str = entry.entry_id.get_id_string();
-                    let mut fields_resp = Vec::new();
+                    let mut fields_resp = VecDeque::new();
                     for (k, v) in &entry.fields {
-                        fields_resp.push(Resp::BulkString(k.clone()));
-                        fields_resp.push(Resp::BulkString(v.clone()));
+                        fields_resp.push_back(Resp::BulkString(k.clone()));
+                        fields_resp.push_back(Resp::BulkString(v.clone()));
                     }
 
                     results.push(Resp::Array(vec![
                         Resp::BulkString(id_str.into_bytes()),
                         Resp::Array(fields_resp),
-                    ]));
+                    ].into()));
                 }
             }
         }
 
-        Resp::Array(results)
+        Resp::Array(VecDeque::from(results))
     }
     pub fn add_entry(
         &mut self,

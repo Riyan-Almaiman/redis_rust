@@ -17,6 +17,9 @@ pub struct StreamRead {
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
     Ping,
+    Incr{
+        key: Vec<u8>
+},
     Echo(Vec<u8>),
     Set {
         key: Vec<u8>,
@@ -68,275 +71,310 @@ pub enum RedisCommand {
     },
 }
 impl RedisCommand {
+    pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
+        match command.to_lowercase().as_str() {
 
-    pub fn from_resp(cmds: &[Vec<u8>]) -> Result<Self, String> {
-        if cmds.is_empty() {
-            return Err("Empty command".to_string());
-        }
-
-        let command_name = std::str::from_utf8(&cmds[0])
-            .map(|s| s.to_lowercase())
-            .map_err(|_| "Invalid UTF-8 in command")?;
-
-        match command_name.as_str() {
-            "xread" => {
-                let streams_pos = cmds.iter().position(|c| String::from_utf8_lossy(c).to_lowercase() == "streams")
-                    .ok_or("Missing STREAMS keyword")?;
-
-                let block_pos = cmds.iter().position(|c| String::from_utf8_lossy(c).to_lowercase() == "block");
-
-                let timeout = if let Some(pos) = block_pos {
-                    let t_str = String::from_utf8_lossy(&cmds[pos + 1]);
-                    Some(t_str.parse::<f64>().map_err(|_| "Invalid timeout")?)
-                } else {
-                    None
-                };
-
-                let args = &cmds[streams_pos + 1..];
-                let half = args.len() / 2;
-                if args.len() % 2 != 0 { return Err("Invalid stream/id pairs".into()); }
-
-                let mut streams = Vec::new();
-                for i in 0..half {
-                    let key = args[i].clone();
-                    let id_str = String::from_utf8_lossy(&args[i + half]);
-
-                    streams.push(StreamRead {
-                        key,
-                        id: id_str.to_string(), 
-                    });
+            // ---------------- PING ----------------
+            "ping" => Ok(RedisCommand::Ping),
+            "incr" => {
+                                if args.len() < 1 {
+                    return Err("INCR requires an argument".into());
                 }
+                Ok(RedisCommand::Incr{key: args[0].as_bytes().to_vec()})
 
-                Ok(RedisCommand::XRead { streams, timeout })
             }
-            "xrange" => {
-                let key = cmds[1].clone();
-                Self::parse_xrange(key, cmds)
+            // ---------------- ECHO ----------------
+            "echo" => {
+                if args.len() < 1 {
+                    return Err("ECHO requires an argument".into());
+                }
+                Ok(RedisCommand::Echo(args[0].as_bytes().to_vec()))
             }
-            "xadd" => {
-                if cmds.len() < 5 || (cmds.len() - 3) % 2 != 0 {
-                    return Err(
-                        "XADD requires key, ID, and at least one field-value pair".to_string()
-                    );
-                }
 
-                let key = cmds[1].clone();
-                let mut entries = Vec::new();
-                let mut i = 3;
-                while i + 1 < cmds.len() {
-                    entries.push((cmds[i].clone(), cmds[i + 1].clone()));
-                    i += 2;
-                }
-                let id_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
-                if id_str.is_empty() {
-                    return Err("Invalid ID".to_string());
-                }
-                if id_str == "*" {
-                    return Ok(RedisCommand::XAdd {
-                        key,
-                        fields: entries,
-                        id: StreamEntryIdCommandType::GenerateTimeAndSequence,
-                    });
-                }
-
-                let (time_str, seq_str) = id_str.split_once('-').ok_or("Invalid ID format")?;
-                let time = time_str
-                    .parse::<u64>()
-                    .map_err(|_| "Invalid ID timestamp")?;
-
-                match seq_str {
-                    "*" => {
-                        return Ok(RedisCommand::XAdd {
-                            key,
-                            fields: entries,
-                            id: StreamEntryIdCommandType::GenerateOnlySequence { time },
-                        });
-                    }
-                    _ => {
-                        let sequence = seq_str.parse::<u64>().map_err(|_| "Invalid ID sequence")?;
-                        return Ok(RedisCommand::XAdd {
-                            key,
-                            fields: entries,
-                            id: StreamEntryIdCommandType::Explicit { time, sequence },
-                        });
-                    }
-                }
-            }
+            // ---------------- SET ----------------
             "set" => {
-                if cmds.len() < 3 {
-                    return Err("SET requires a key and a value".to_string());
+                if args.len() < 2 {
+                    return Err("SET requires a key and a value".into());
                 }
 
                 let mut expiry = None;
+                let mut i = 2;
 
-                let mut i = 3;
-                while i < cmds.len() {
-                    let arg = std::str::from_utf8(&cmds[i])
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default();
-
-                    match arg.as_str() {
+                while i < args.len() {
+                    match args[i].to_lowercase().as_str() {
                         "px" => {
-                            if i + 1 < cmds.len() {
-                                expiry = std::str::from_utf8(&cmds[i + 1])
-                                    .ok()
-                                    .and_then(|s| s.parse::<u64>().ok());
-                                i += 2;
-                            } else {
-                                return Err("SET PX requires a timeout value".to_string());
+                            if i + 1 >= args.len() {
+                                return Err("SET PX requires timeout".into());
                             }
+                            expiry = Some(args[i + 1].parse::<u64>().map_err(|_| "Invalid PX")?);
+                            i += 2;
                         }
                         "ex" => {
-                            if i + 1 < cmds.len() {
-                                expiry = std::str::from_utf8(&cmds[i + 1])
-                                    .ok()
-                                    .and_then(|s| s.parse::<u64>().ok())
-                                    .map(|secs| secs * 1000);
-                                i += 2;
-                            } else {
-                                return Err("SET EX requires a timeout value".to_string());
+                            if i + 1 >= args.len() {
+                                return Err("SET EX requires timeout".into());
                             }
+                            let secs = args[i + 1].parse::<u64>().map_err(|_| "Invalid EX")?;
+                            expiry = Some(secs * 1000);
+                            i += 2;
                         }
                         _ => i += 1,
                     }
                 }
 
                 Ok(RedisCommand::Set {
-                    key: cmds[1].clone(),
-                    value: cmds[2].clone(),
+                    key: args[0].as_bytes().to_vec(),
+                    value: args[1].as_bytes().to_vec(),
                     expiry,
                 })
             }
 
+            // ---------------- GET ----------------
             "get" => {
-                if cmds.len() < 2 {
-                    return Err("GET requires a key".to_string());
+                if args.len() < 1 {
+                    return Err("GET requires a key".into());
                 }
-                Ok(RedisCommand::Get(cmds[1].clone()))
+                Ok(RedisCommand::Get(args[0].as_bytes().to_vec()))
             }
 
-            "rpush" => {
-                if cmds.len() < 3 {
-                    return Err("RPUSH requires key and at least one element".to_string());
-                }
-                Ok(RedisCommand::RPush {
-                    key: cmds[1].clone(),
-                    elements: cmds[2..].to_vec(),
-                })
-            }
-            "ping" => Ok(RedisCommand::Ping),
-            "echo" => {
-                if cmds.len() < 2 {
-                    return Err("ECHO requires an argument".to_string());
-                }
-                Ok(RedisCommand::Echo(cmds[1].clone()))
-            }
+            // ---------------- TYPE ----------------
             "type" => {
-                if cmds.len() < 2 {
-                    return Err("TYPE requires a key".to_string());
+                if args.len() < 1 {
+                    return Err("TYPE requires a key".into());
                 }
-                Ok(RedisCommand::Type(cmds[1].clone()))
+                Ok(RedisCommand::Type(args[0].as_bytes().to_vec()))
             }
-            "lpush" => {
-                if cmds.len() < 3 {
-                    return Err("LPUSH requires key and at least one element".to_string());
+
+            // ---------------- RPUSH ----------------
+            "rpush" => {
+                if args.len() < 2 {
+                    return Err("RPUSH requires key and at least one element".into());
                 }
-                Ok(RedisCommand::LPush {
-                    key: cmds[1].clone(),
-                    elements: cmds[2..].to_vec(),
+
+                Ok(RedisCommand::RPush {
+                    key: args[0].as_bytes().to_vec(),
+                    elements: args[1..]
+                        .iter()
+                        .map(|s| s.as_bytes().to_vec())
+                        .collect(),
                 })
             }
 
-            "lrange" => {
-                if cmds.len() < 4 {
-                    return Err("LRANGE requires key, start, and stop".to_string());
+            // ---------------- LPUSH ----------------
+            "lpush" => {
+                if args.len() < 2 {
+                    return Err("LPUSH requires key and at least one element".into());
                 }
-                let start = std::str::from_utf8(&cmds[2])
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
-                let stop = std::str::from_utf8(&cmds[3])
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
+
+                Ok(RedisCommand::LPush {
+                    key: args[0].as_bytes().to_vec(),
+                    elements: args[1..]
+                        .iter()
+                        .map(|s| s.as_bytes().to_vec())
+                        .collect(),
+                })
+            }
+
+            // ---------------- LRANGE ----------------
+            "lrange" => {
+                if args.len() < 3 {
+                    return Err("LRANGE requires key, start, stop".into());
+                }
+
+                let start = args[1].parse::<i64>().map_err(|_| "Invalid start")?;
+                let stop = args[2].parse::<i64>().map_err(|_| "Invalid stop")?;
+
                 Ok(RedisCommand::LRange {
-                    key: cmds[1].clone(),
+                    key: args[0].as_bytes().to_vec(),
                     start,
                     stop,
                 })
             }
 
-            "llen" => cmds
-                .get(1)
-                .map(|arg| RedisCommand::LLen(arg.clone()))
-                .ok_or_else(|| "LLEN requires a key".to_string()),
-
-            "lpop" => {
-                if cmds.len() < 2 {
-                    return Err("LPOP requires a key".to_string());
+            // ---------------- LLEN ----------------
+            "llen" => {
+                if args.len() < 1 {
+                    return Err("LLEN requires a key".into());
                 }
-                let count = cmds
-                    .get(2)
-                    .and_then(|b| std::str::from_utf8(b).ok())
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(1);
+
+                Ok(RedisCommand::LLen(args[0].as_bytes().to_vec()))
+            }
+
+            // ---------------- LPOP ----------------
+            "lpop" => {
+                if args.len() < 1 {
+                    return Err("LPOP requires a key".into());
+                }
+
+                let count = if args.len() >= 2 {
+                    args[1].parse::<usize>().map_err(|_| "Invalid count")?
+                } else {
+                    1
+                };
+
                 Ok(RedisCommand::LPop {
-                    key: cmds[1].clone(),
+                    key: args[0].as_bytes().to_vec(),
                     count,
                 })
             }
 
+            // ---------------- BLPOP ----------------
             "blpop" => {
-                if cmds.len() < 3 {
-                    return Err("BLPOP requires at least one key and a timeout".to_string());
+                if args.len() < 2 {
+                    return Err("BLPOP requires keys and timeout".into());
                 }
-                let timeout = std::str::from_utf8(cmds.last().unwrap())
-                    .map_err(|_| "Invalid timeout encoding")?
-                    .parse()
-                    .map_err(|_| "Invalid timeout value")?;
-                let keys = cmds[1..cmds.len() - 1].to_vec();
+
+                let timeout = args.last().unwrap()
+                    .parse::<f64>()
+                    .map_err(|_| "Invalid timeout")?;
+
+                let keys = args[..args.len() - 1]
+                    .iter()
+                    .map(|s| s.as_bytes().to_vec())
+                    .collect();
+
                 Ok(RedisCommand::BLPop { keys, timeout })
             }
 
-            _ => Err(format!("Unknown command: {}", command_name)),
+            // ---------------- XADD ----------------
+            "xadd" => {
+                if args.len() < 3 || (args.len() - 2) % 2 != 0 {
+                    return Err("XADD requires key, ID, and field-value pairs".into());
+                }
+
+                let key = args[0].as_bytes().to_vec();
+                let id_str = args[1];
+
+                let mut fields = Vec::new();
+                let mut i = 2;
+
+                while i + 1 < args.len() {
+                    fields.push((
+                        args[i].as_bytes().to_vec(),
+                        args[i + 1].as_bytes().to_vec(),
+                    ));
+                    i += 2;
+                }
+
+                if id_str == "*" {
+                    return Ok(RedisCommand::XAdd {
+                        key,
+                        fields,
+                        id: StreamEntryIdCommandType::GenerateTimeAndSequence,
+                    });
+                }
+
+                let (time_str, seq_str) =
+                    id_str.split_once('-').ok_or("Invalid ID format")?;
+
+                let time = time_str.parse::<u64>().map_err(|_| "Invalid ID timestamp")?;
+
+                match seq_str {
+                    "*" => Ok(RedisCommand::XAdd {
+                        key,
+                        fields,
+                        id: StreamEntryIdCommandType::GenerateOnlySequence { time },
+                    }),
+                    _ => {
+                        let sequence =
+                            seq_str.parse::<u64>().map_err(|_| "Invalid ID sequence")?;
+
+                        Ok(RedisCommand::XAdd {
+                            key,
+                            fields,
+                            id: StreamEntryIdCommandType::Explicit { time, sequence },
+                        })
+                    }
+                }
+            }
+
+            // ---------------- XRANGE ----------------
+            "xrange" => {
+                if args.len() < 3 {
+                    return Err("XRANGE requires key start end".into());
+                }
+
+                Self::parse_xrange(
+                    args[0].as_bytes().to_vec(),
+                    args[1],
+                    args[2],
+                )
+            }
+
+            // ---------------- XREAD ----------------
+            "xread" => {
+                let streams_pos = args
+                    .iter()
+                    .position(|c| c.eq_ignore_ascii_case("streams"))
+                    .ok_or("Missing STREAMS keyword")?;
+
+                let block_pos = args
+                    .iter()
+                    .position(|c| c.eq_ignore_ascii_case("block"));
+
+                let timeout = if let Some(pos) = block_pos {
+                    Some(args[pos + 1].parse::<f64>().map_err(|_| "Invalid timeout")?)
+                } else {
+                    None
+                };
+
+                let stream_args = &args[streams_pos + 1..];
+
+                if stream_args.len() % 2 != 0 {
+                    return Err("Invalid stream/id pairs".into());
+                }
+
+                let half = stream_args.len() / 2;
+
+                let mut streams = Vec::new();
+
+                for i in 0..half {
+                    streams.push(StreamRead {
+                        key: stream_args[i].as_bytes().to_vec(),
+                        id: stream_args[i + half].to_string(),
+                    });
+                }
+
+                Ok(RedisCommand::XRead { streams, timeout })
+            }
+
+            // ---------------- UNKNOWN ----------------
+            _ => Err(format!("Unknown command: {}", command)),
         }
     }
 
-    fn parse_xrange(key: Vec<u8>, cmds: &[Vec<u8>]) -> Result<RedisCommand, String> {
-        let start_str = std::str::from_utf8(&cmds[2]).map_err(|_| "Invalid ID encoding")?;
-        let end_str = std::str::from_utf8(&cmds[3]).map_err(|_| "Invalid ID encoding")?;
+    fn parse_xrange(
+        key: Vec<u8>,
+        start_str: &str,
+        end_str: &str,
+    ) -> Result<RedisCommand, String> {
 
-        let (start_time, start_seq) = if start_str == "-" || start_str == "+" {
-            match start_str {
-                "-" => (0, 0),
-                "+" => (u64::MAX, u64::MAX),
-                _ => panic!("idk how this would happen"),
+        fn parse_id(id: &str, is_start: bool) -> Result<(u64, u64), String> {
+            if id == "-" {
+                return Ok((0, 0));
             }
-        } else if let Some((t, s)) = start_str.split_once('-') {
-            (
-                t.parse::<u64>().map_err(|_| "Err")?,
-                s.parse::<u64>().map_err(|_| "Err")?,
-            )
-        } else {
-            (start_str.parse::<u64>().map_err(|_| "Err")?, 0)
-        };
-
-        let (end_time, end_seq) = if end_str == "-" || end_str == "+" {
-            match end_str {
-                "-" => (0, 0),
-                "+" => (u64::MAX, u64::MAX),
-                _ => panic!("idk how this would happen"),
+            if id == "+" {
+                return Ok((u64::MAX, u64::MAX));
             }
-        } else if let Some((t, s)) = end_str.split_once('-') {
-            (
-                t.parse::<u64>().map_err(|_| "Err")?,
-                s.parse::<u64>().map_err(|_| "Err")?,
-            )
-        } else {
-            (end_str.parse::<u64>().map_err(|_| "Err")?, u64::MAX)
-        };
 
-        Ok(XRange {
+            if let Some((t, s)) = id.split_once('-') {
+                Ok((
+                    t.parse::<u64>().map_err(|_| "Invalid time")?,
+                    s.parse::<u64>().map_err(|_| "Invalid sequence")?,
+                ))
+            } else {
+                let time = id.parse::<u64>().map_err(|_| "Invalid ID")?;
+                if is_start {
+                    Ok((time, 0))
+                } else {
+                    Ok((time, u64::MAX))
+                }
+            }
+        }
+
+        let (start_time, start_seq) = parse_id(start_str, true)?;
+        let (end_time, end_seq) = parse_id(end_str, false)?;
+
+        Ok(RedisCommand::XRange {
             key,
             start_time,
             end_time,

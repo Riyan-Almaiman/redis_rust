@@ -2,15 +2,17 @@ use crate::blocking_list::{BlockingClient, BlockingList};
 use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::commands::RedisCommand;
 use crate::lists::List;
+use crate::parser;
 use crate::resp::Resp;
 use crate::valuetype::ValueType;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
+
     pub receiver: mpsc::Receiver<Client>,
     pub blocked_list: BlockingList,
     pub blocking_streams: BlockingStreams,
@@ -35,7 +37,7 @@ impl KeyValue {
 }
 impl DB {
     pub fn new() -> Self {
-        let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(100);
+        let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
         Self {
             database: HashMap::new(),
@@ -52,31 +54,25 @@ impl DB {
         }
     }
     fn wake_stream_client(&mut self, client_id: Uuid) {
-
         if let Some(client) = self.blocking_streams.clients.remove(&client_id) {
-
             // Remove from all wait queues
             for q in self.blocking_streams.waiters.values_mut() {
                 q.retain(|id| *id != client_id);
             }
 
-            let mut result = Vec::new();
+            let mut result = VecDeque::new();
 
             for wait in &client.waits {
                 if let Some(kv) = self.database.get(&wait.key) {
                     if let ValueType::Stream(stream) = &kv.value {
-                        let entries = stream.get_read_streams(
-
-                            wait.time,
-                            wait.sequence,
-                        );
+                        let entries = stream.get_read_streams(wait.time, wait.sequence);
 
                         if let Resp::Array(ref arr) = entries {
                             if !arr.is_empty() {
-                                result.push(Resp::Array(vec![
+                                result.push_back(Resp::Array(VecDeque::from([
                                     Resp::BulkString(wait.key.clone()),
                                     entries,
-                                ]));
+                                ])));
                             }
                         }
                     }
@@ -97,6 +93,35 @@ impl DB {
             } = request;
 
             let outcome = match command {
+                RedisCommand::Incr { key } => {
+                  let item =   self.database.entry(key).or_insert(KeyValue {
+                        expiry: None,
+                        value: ValueType::String("0".as_bytes().to_vec()),
+                    });
+
+                    match &item.value {
+                        ValueType::String(value) => {
+                            if let Ok(num_string)  = String::from_utf8(value.clone()) {
+                                if let Ok(mut number) = num_string.parse::<i64>() {
+
+                                     number+=1;
+                                     let v = number.to_string().as_bytes().to_vec();
+                                     item.value = ValueType::String(v);
+                                     Resp::Integer(number as usize)
+
+                                }
+                                else {
+                                    Resp::Error("invalid number".as_bytes().to_vec())
+                                }
+                            }  else {
+                                    Resp::Error("invalid number".as_bytes().to_vec())
+                                }
+                        
+                        
+                        },
+                        _ => panic!("idk if this can happen")
+                    }
+                }
                 RedisCommand::XRead { streams, timeout } => {
                     let mut resolved_streams = Vec::new();
 
@@ -112,11 +137,15 @@ impl DB {
                                 (0, 0)
                             }
                         } else {
-                            s_read.id.split_once('-')
-                                .map(|(t_str, s_str)| (
-                                    t_str.parse::<u64>().unwrap_or(0),
-                                    s_str.parse::<u64>().unwrap_or(0)
-                                ))
+                            s_read
+                                .id
+                                .split_once('-')
+                                .map(|(t_str, s_str)| {
+                                    (
+                                        t_str.parse::<u64>().unwrap_or(0),
+                                        s_str.parse::<u64>().unwrap_or(0),
+                                    )
+                                })
                                 .unwrap_or((0, 0))
                         };
 
@@ -127,17 +156,17 @@ impl DB {
                         });
                     }
 
-                    let mut result = Vec::new();
+                    let mut result = VecDeque::new();
                     for wait in &resolved_streams {
                         if let Some(kv) = self.database.get(&wait.key) {
                             if let ValueType::Stream(stream) = &kv.value {
                                 let entries = stream.get_read_streams(wait.time, wait.sequence);
                                 if let Resp::Array(ref arr) = entries {
                                     if !arr.is_empty() {
-                                        result.push(Resp::Array(vec![
+                                        result.push_back(Resp::Array(VecDeque::from([
                                             Resp::BulkString(wait.key.clone()),
                                             entries,
-                                        ]));
+                                        ])));
                                     }
                                 }
                             }
@@ -157,7 +186,8 @@ impl DB {
                         };
 
                         for wait in &client.waits {
-                            self.blocking_streams.waiters
+                            self.blocking_streams
+                                .waiters
                                 .entry(wait.key.clone())
                                 .or_default()
                                 .push_back(client_id);
@@ -168,12 +198,14 @@ impl DB {
                             let sender_clone = self.sender.clone();
                             tokio::spawn(async move {
                                 tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
-                                let _ = sender_clone.send(Client {
-                                    client_id,
-                                    timeout: None,
-                                    response_tx: oneshot::channel().0,
-                                    command: RedisCommand::InternalTimeoutCleanup { client_id },
-                                }).await;
+                                let _ = sender_clone
+                                    .send(Client {
+                                        client_id,
+                                        timeout: None,
+                                        response_tx: oneshot::channel().0,
+                                        command: RedisCommand::InternalTimeoutCleanup { client_id },
+                                    })
+                                    .await;
                             });
                         }
                         continue;
@@ -196,7 +228,7 @@ impl DB {
                     start_sequence,
                     end_sequence,
                 } => match self.database.get_mut(&key) {
-                    None => Resp::Array(Vec::new()),
+                    None => Resp::Array(VecDeque::new()),
                     Some(kv) => {
                         if let ValueType::Stream(stream) = &mut kv.value {
                             let entries = stream.get_range(
@@ -222,22 +254,22 @@ impl DB {
                     if let ValueType::Stream(stream) = &mut stream.value {
                         match stream.add_entry(fields, id) {
                             Ok(new_id) => {
-
                                 let id_str = new_id.get_id_string();
 
                                 // WAKE BLOCKED STREAM CLIENTS
                                 if let Some(queue) = self.blocking_streams.waiters.get(&key) {
-
                                     let mut to_wake = Vec::new();
 
                                     for client_id in queue {
-                                        if let Some(client) = self.blocking_streams.clients.get(client_id) {
-
-                                            if let Some(wait) = client.waits.iter()
-                                                .find(|w| w.key == key) {
-
-                                                if new_id.time > wait.time ||
-                                                    (new_id.time == wait.time && new_id.sequence > wait.sequence)
+                                        if let Some(client) =
+                                            self.blocking_streams.clients.get(client_id)
+                                        {
+                                            if let Some(wait) =
+                                                client.waits.iter().find(|w| w.key == key)
+                                            {
+                                                if new_id.time > wait.time
+                                                    || (new_id.time == wait.time
+                                                        && new_id.sequence > wait.sequence)
                                                 {
                                                     to_wake.push(*client_id);
                                                 }
@@ -318,10 +350,10 @@ impl DB {
                                 let resp = list.lpop(key, 1);
 
                                 if !matches!(resp, Resp::NullBulkString) {
-                                    found = Some(Resp::Array(vec![
+                                    found = Some(Resp::Array(VecDeque::from([
                                         Resp::BulkString(key.clone()),
                                         resp,
-                                    ]));
+                                    ])));
                                     break;
                                 }
                             }
@@ -363,9 +395,12 @@ impl DB {
 
                     continue;
                 }
-                RedisCommand::InternalTimeoutCleanup { client_id: target_id, .. } => {
-
-                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&target_id) {
+                RedisCommand::InternalTimeoutCleanup {
+                    client_id: target_id,
+                    ..
+                } => {
+                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&target_id)
+                    {
                         for queue in self.blocked_list.waiters.values_mut() {
                             queue.retain(|id| *id != target_id);
                         }
@@ -390,7 +425,7 @@ impl DB {
                             Resp::Error(b"WRONGTYPE".to_vec())
                         }
                     } else {
-                        Resp::Array(vec![])
+                        Resp::Array(VecDeque::new())
                     }
                 }
 

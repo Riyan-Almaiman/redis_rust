@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use crate::parser::CurrentState::{
     Incomplete, InvalidCommand, ReadingArrayElementCount, ReadingBulkString, ReadingElementType,
     ReadingError, ReadingInteger, ReadingSimpleString,
@@ -13,7 +14,7 @@ pub struct Parser {
 }
 #[derive(Clone, Debug)]
 pub struct CommandArray {
-    elements: Vec<Resp>,
+    elements: VecDeque<Resp>,
     pub(crate) current_element: Option<Resp>,
     pub(crate) current_state: CurrentState,
     pub(crate) states: Vec<CurrentState>,
@@ -72,7 +73,7 @@ impl CommandArray {
             current_element: None,
             current_state: CurrentState::None,
             states: Vec::new(),
-            elements: Vec::new(),
+            elements: VecDeque::new(),
             element_count: 0,
             pos: 0,
         }
@@ -96,7 +97,7 @@ impl Parser {
 
                     if byte == b'*' {
                         self.current_command.current_state = ReadingArrayElementCount {
-                            array: Array(Vec::new()),
+                            array: Array(VecDeque::new()),
                             starting_buffer_index: 0,
                             final_buffer_index: None,
                         };
@@ -106,7 +107,7 @@ impl Parser {
                             self.read_buffer.drain(..self.current_index);
                             self.current_index = 0;
 
-                            let parts: Vec<Resp> = line
+                            let parts: VecDeque<Resp> = line
                                 .split(|b| *b == b' ')
                                 .map(|s| Resp::BulkString(s.to_vec()))
                                 .collect();
@@ -177,7 +178,7 @@ impl Parser {
         let string = self.read_until_clrf();
         match string {
             Some(s) => {
-                self.current_command.elements.push(Resp::SimpleString(s));
+                self.current_command.elements.push_back(Resp::SimpleString(s));
                 return ReadingElementType {
                     element_symbol: None,
                 };
@@ -210,7 +211,7 @@ impl Parser {
             count += 1;
             if count == number as usize {
                 count += 2;
-                self.current_command.elements.push(Resp::BulkString(string));
+                self.current_command.elements.push_back(Resp::BulkString(string));
                 self.current_index += count;
                 return ReadingElementType {
                     element_symbol: None,
@@ -232,7 +233,7 @@ impl Parser {
                     match parsed {
                         Resp::Integer(val) => {
                             *val = Self::vec_to_i64(&n).unwrap() as usize;
-                            self.current_command.elements.push(parsed.clone())
+                            self.current_command.elements.push_back(parsed.clone())
                         }
                         _ => panic!("unreachable"),
                     };
@@ -277,7 +278,7 @@ impl Parser {
                 final_buffer_index: None,
             },
             b'*' => ReadingArrayElementCount {
-                array: Resp::Array(Vec::new()),
+                array: Resp::Array(VecDeque::new()),
                 starting_buffer_index: self.current_index,
                 final_buffer_index: None,
             },

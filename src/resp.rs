@@ -1,6 +1,9 @@
+use std::collections::VecDeque;
+use std::str::Utf8Error;
+
 #[derive(Clone, Debug)]
 pub enum Resp {
-    Array(Vec<Resp>),
+    Array(VecDeque<Resp>),
     BulkString(Vec<u8>),
     Integer(usize),
     NullArray,
@@ -10,15 +13,13 @@ pub enum Resp {
 }
 
 impl Resp {
-    pub fn get_bytes(resp: &Resp) -> Vec<u8> {
-        return match resp {
-            Resp::SimpleString(bytes) => return bytes.clone(),
-            Resp::Integer(number) => return number.to_be_bytes().to_vec(),
-            Resp::BulkString(bytes) => return bytes.clone(),
-
-            Resp::Error(bytes) => return bytes.clone(),
-            _ => Vec::new(),
-        };
+    pub fn get_bytes(resp: &Resp) -> Option<&[u8]> {
+        match resp {
+            Resp::SimpleString(bytes) => Some(bytes),
+            Resp::BulkString(bytes) => Some(bytes),
+            Resp::Error(bytes) => Some(bytes),
+            _ => None,
+        }
     }
     pub fn write_format(&self, out: &mut Vec<u8>) {
         match self {

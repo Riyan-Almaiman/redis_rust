@@ -40,10 +40,10 @@ impl BlockingList {
                 q.retain(|id| *id != client_id);
             }
 
-            let _ = client.response_tx.send(Resp::Array(vec![
+            let _ = client.response_tx.send(Resp::Array(VecDeque::from(vec![
                 Resp::BulkString(key.to_vec()),
                 Resp::BulkString(value),
-            ]));
+            ])));
 
             if let Some(queue) = self.waiters.get(key) {
                 if queue.is_empty() {

@@ -60,7 +60,7 @@ impl List {
         } else if popped.is_empty() {
             return Resp::NullArray;
         } else {
-            return Resp::Array(popped);
+            return Resp::Array(VecDeque::from(popped));
         }
     }
     pub fn llen(&self) -> Resp {
@@ -71,7 +71,7 @@ impl List {
         let len = self.list.len() as i64;
 
         if len == 0 {
-            return Resp::Array(Vec::new());
+            return Resp::Array(Vec::new().into());
         }
 
         let start = if start_raw < 0 {
@@ -87,7 +87,7 @@ impl List {
         };
 
         if start > end || start >= len {
-            return Resp::Array(Vec::new());
+            return Resp::Array(Vec::new().into());
         }
 
         let start = start as usize;
@@ -101,7 +101,7 @@ impl List {
             .map(|v| Resp::BulkString(v.clone()))
             .collect();
 
-        return Resp::Array(items);
+        return Resp::Array(VecDeque::from(items));
     }
     pub fn lpush(&mut self, elements: Vec<Vec<u8>>) -> Resp {
         for (i, m) in elements.iter().enumerate() {
