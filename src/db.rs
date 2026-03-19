@@ -178,6 +178,11 @@ impl DB {
                             _ => (),
                         }
                     }
+                    RedisCommand::Discard => {
+                        let outcome = self.execute_commands(command, client_id);
+                                                        let _ = response_tx.send(outcome);
+
+                    }
                     _ => {
                         client.push(command);
                         let _ = response_tx.send(Resp::SimpleString(b"QUEUED".to_vec()));
