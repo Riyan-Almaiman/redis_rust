@@ -18,15 +18,19 @@ use crate::{
 };
 
 impl DB {
-    pub fn execute_commands(
-        &mut self,
-        command: RedisCommand,
-        client_id: Uuid,
-    ) -> Resp {
+    pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
             RedisCommand::Multi => {
                 self.multi_list.insert(client_id, vec![]);
                 Resp::SimpleString("OK".as_bytes().to_vec())
+            }
+            RedisCommand::Discard => {
+                let exists = self.multi_list.remove(&client_id);
+                if exists.is_some() {
+                    Resp::SimpleString("OK".as_bytes().to_vec())
+                } else {
+                    Resp::Error("ERR DISCARD without MULTI".as_bytes().to_vec())
+                }
             }
             RedisCommand::Incr { key } => {
                 let item = self.database.entry(key).or_insert(KeyValue {
@@ -112,14 +116,18 @@ impl DB {
                 }
 
                 if !result.is_empty() {
-                   return Resp::Array(result)
+                    return Resp::Array(result);
                 }
 
                 if let Some(timeout_ms) = timeout {
-                    return Resp::BlockingStreamClient { client_id, resolved_streams, timeout_ms };
+                    return Resp::BlockingStreamClient {
+                        client_id,
+                        resolved_streams,
+                        timeout_ms,
+                    };
                 }
 
-               return Resp::NullBulkString
+                return Resp::NullBulkString;
             }
             RedisCommand::Type(key) => {
                 let type_str = match self.database.get(&key) {
@@ -264,14 +272,9 @@ impl DB {
                     }
                 }
                 match found {
-                    Some(found) => {
-                        return found 
-                    }
-                    None => {
-                        return Resp::BlockingClient { keys, timeout }
-                    }
+                    Some(found) => return found,
+                    None => return Resp::BlockingClient { keys, timeout },
                 }
-
             }
             RedisCommand::InternalTimeoutCleanup {
                 client_id: target_id,
@@ -292,7 +295,7 @@ impl DB {
                 } else {
                 }
 
-                return Resp::None
+                return Resp::None;
             }
             RedisCommand::LRange { key, start, stop } => {
                 if let Some(kv) = self.database.get(&key) {
@@ -356,7 +359,7 @@ impl DB {
             RedisCommand::Error(err) => Resp::Error(err.as_bytes().to_vec()),
             RedisCommand::Exec => {
                 if let Some(client) = self.multi_list.remove(&client_id) {
-                    return Resp::Exec(client)
+                    return Resp::Exec(client);
                 } else {
                     Resp::Error("ERR EXEC without MULTI".as_bytes().to_vec())
                 }

@@ -71,12 +71,14 @@ pub enum RedisCommand {
     },
     Multi,
     Error( String),
-    Exec
+    Exec,
+    Discard
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
                         "exec" => Ok(RedisCommand::Exec),
+                        "discard" => Ok(RedisCommand::Discard),
 
             "ping" => Ok(RedisCommand::Ping),
             "multi" => Ok(RedisCommand::Multi),
