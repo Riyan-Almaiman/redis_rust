@@ -69,11 +69,14 @@ pub enum RedisCommand {
         streams: Vec<StreamRead>,
         timeout: Option<f64>,
     },
-    Multi 
+    Multi,
+    Error( String),
+    Exec
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                        "exec" => Ok(RedisCommand::Exec),
 
             "ping" => Ok(RedisCommand::Ping),
             "multi" => Ok(RedisCommand::Multi),

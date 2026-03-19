@@ -1,5 +1,12 @@
+use core::panic;
 use std::collections::VecDeque;
 use std::str::Utf8Error;
+
+use tokio::sync::oneshot;
+use uuid::Uuid;
+
+use crate::blocking_stream::StreamWait;
+use crate::commands::RedisCommand;
 
 #[derive(Clone, Debug)]
 pub enum Resp {
@@ -9,6 +16,15 @@ pub enum Resp {
     NullArray,
     SimpleString(Vec<u8>),
     NullBulkString,
+    BlockingClient {
+        keys: Vec<Vec<u8>>,
+        timeout: f64
+    },
+    Exec(Vec<RedisCommand>),
+    BlockingStreamClient {
+        client_id: Uuid, resolved_streams:Vec<StreamWait> , timeout_ms:f64 
+    },
+    None,
     Error(Vec<u8>),
 }
 
@@ -55,6 +71,7 @@ impl Resp {
             }
             Resp::NullBulkString => out.extend_from_slice(b"$-1\r\n"),
             Resp::NullArray => out.extend_from_slice(b"*-1\r\n"),
+            _=> panic!("")
         }
     }
     pub fn formate_cmd(&self) -> Vec<u8> {
@@ -95,7 +112,8 @@ impl Resp {
                 out.extend(bytes);
                 out.extend(b"\r\n");
                 out
-            }
+            }            _=> panic!("")
+
         }
     }
 }

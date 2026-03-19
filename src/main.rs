@@ -16,6 +16,7 @@ mod blocking_list;
 mod blocking_stream;
 mod db;
 mod stream;
+mod db_commands;
 mod valuetype;
 mod xrange;
 
@@ -98,7 +99,10 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command =
-                        RedisCommand::from_parts(cmd_name, &args).expect("Command parsing failed");
+                            match         RedisCommand::from_parts(cmd_name, &args) {
+                                Ok(cmd) => cmd,
+                                Err(e) => RedisCommand::Error(e)
+                            };
                     commands.push(command);
                 }
             }

@@ -7,7 +7,8 @@ use crate::resp::Resp;
 pub struct BlockingStreams {
     pub waiters: HashMap<Vec<u8>, VecDeque<Uuid>>,
     pub clients: HashMap<Uuid, BlockingStreamClient>,
-}
+}#[derive(Clone, Debug)]
+
 pub struct StreamWait {
     pub key: Vec<u8>,
     pub time: u64,

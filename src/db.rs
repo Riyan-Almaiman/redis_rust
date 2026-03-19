@@ -5,6 +5,7 @@ use crate::lists::List;
 use crate::parser;
 use crate::resp::Resp;
 use crate::valuetype::ValueType;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
@@ -12,7 +13,7 @@ use uuid::Uuid;
 
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
-
+    pub multi_list: HashMap<Uuid, Vec<RedisCommand>>,
     pub receiver: mpsc::Receiver<Client>,
     pub blocked_list: BlockingList,
     pub blocking_streams: BlockingStreams,
@@ -27,7 +28,7 @@ pub struct Client {
 }
 
 pub struct KeyValue {
-    expiry: Option<SystemTime>,
+    pub expiry: Option<SystemTime>,
     pub(crate) value: ValueType,
 }
 impl KeyValue {
@@ -43,6 +44,7 @@ impl DB {
             database: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
+            multi_list: HashMap::new(),
             blocked_list: BlockingList {
                 blocked_list: Default::default(),
                 waiters: HashMap::new(),
@@ -53,7 +55,76 @@ impl DB {
             },
         }
     }
-    fn wake_stream_client(&mut self, client_id: Uuid) {
+    pub fn create_blocking_stream_client(
+        &mut self,
+        client_id: Uuid,
+        resolved_streams: Vec<StreamWait>,
+        response_tx: oneshot::Sender<Resp>,
+        timeout_ms: f64,
+    ) {
+        let client = BlockingStreamClient {
+            id: client_id,
+            response_tx,
+            waits: resolved_streams,
+        };
+
+        for wait in &client.waits {
+            self.blocking_streams
+                .waiters
+                .entry(wait.key.clone())
+                .or_default()
+                .push_back(client_id);
+        }
+        self.blocking_streams.clients.insert(client_id, client);
+
+        if timeout_ms > 0.0 {
+            let sender_clone = self.sender.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
+                let _ = sender_clone
+                    .send(Client {
+                        client_id,
+                        timeout: None,
+                        response_tx: oneshot::channel().0,
+                        command: RedisCommand::InternalTimeoutCleanup { client_id },
+                    })
+                    .await;
+            });
+        }
+    }
+
+    pub fn create_blocking_client(
+        &mut self,
+        client_id: Uuid,
+        keys: Vec<Vec<u8>>,
+        response_tx: oneshot::Sender<Resp>,
+        timeout: f64,
+    ) {
+        let client = BlockingClient {
+            id: client_id,
+            response_tx,
+        };
+
+        self.blocked_list.register(keys, client);
+        if timeout > 0.0 {
+            let sender_clone = self.sender.clone();
+            let id = client_id;
+
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
+
+                let _ = sender_clone
+                    .send(Client {
+                        client_id: id,
+                        timeout: None,
+                        response_tx: oneshot::channel().0,
+                        command: RedisCommand::InternalTimeoutCleanup { client_id: id },
+                    })
+                    .await;
+            });
+        }
+    }
+    pub fn wake_stream_client(&mut self, client_id: Uuid) {
         if let Some(client) = self.blocking_streams.clients.remove(&client_id) {
             // Remove from all wait queues
             for q in self.blocking_streams.waiters.values_mut() {
@@ -92,397 +163,73 @@ impl DB {
                 ..
             } = request;
 
-            let outcome = match command {
-                RedisCommand::Multi => {
-                    Resp::SimpleString("OK".as_bytes().to_vec())
-                }
-                RedisCommand::Incr { key } => {
-                  let item =   self.database.entry(key).or_insert(KeyValue {
-                        expiry: None,
-                        value: ValueType::String("0".as_bytes().to_vec()),
-                    });
-
-                    match &item.value {
-                        ValueType::String(value) => {
-                            if let Ok(num_string)  = String::from_utf8(value.clone()) {
-                                if let Ok(mut number) = num_string.parse::<i64>() {
-
-                                     number+=1;
-                                     let v = number.to_string().as_bytes().to_vec();
-                                     item.value = ValueType::String(v);
-                                     Resp::Integer(number as usize)
-
+            if let Some(client) = self.multi_list.get_mut(&client_id) {
+                match command {
+                    RedisCommand::Exec => {
+                        let outcome = self.execute_commands(command, client_id);
+                        match outcome {
+                            Resp::Exec(redis_commands) => {
+                                let mut responses = VecDeque::new();
+                                for cmd in redis_commands {
+                                    responses.push_back(self.execute_commands(cmd, client_id));
                                 }
-                                else {
-                                    Resp::Error("ERR value is not an integer or out of range".as_bytes().to_vec())
-                                }
-                            }  else {
-                                    Resp::Error("ERR value is not an integer or out of range".as_bytes().to_vec())
-                                }
-                        
-                        
-                        },
-                        _ => panic!("idk if this can happen")
-                    }
-                }
-                RedisCommand::XRead { streams, timeout } => {
-                    let mut resolved_streams = Vec::new();
-
-                    for s_read in &streams {
-                        let (t, s) = if s_read.id == "$" {
-                            if let Some(kv) = self.database.get(&s_read.key) {
-                                if let ValueType::Stream(stream) = &kv.value {
-                                    stream.get_last_id()
-                                } else {
-                                    (0, 0)
-                                }
-                            } else {
-                                (0, 0)
+                                let _ = response_tx.send(Resp::Array(responses));
                             }
-                        } else {
-                            s_read
-                                .id
-                                .split_once('-')
-                                .map(|(t_str, s_str)| {
-                                    (
-                                        t_str.parse::<u64>().unwrap_or(0),
-                                        s_str.parse::<u64>().unwrap_or(0),
-                                    )
-                                })
-                                .unwrap_or((0, 0))
-                        };
-
-                        resolved_streams.push(StreamWait {
-                            key: s_read.key.clone(),
-                            time: t,
-                            sequence: s,
-                        });
-                    }
-
-                    let mut result = VecDeque::new();
-                    for wait in &resolved_streams {
-                        if let Some(kv) = self.database.get(&wait.key) {
-                            if let ValueType::Stream(stream) = &kv.value {
-                                let entries = stream.get_read_streams(wait.time, wait.sequence);
-                                if let Resp::Array(ref arr) = entries {
-                                    if !arr.is_empty() {
-                                        result.push_back(Resp::Array(VecDeque::from([
-                                            Resp::BulkString(wait.key.clone()),
-                                            entries,
-                                        ])));
-                                    }
-                                }
-                            }
+                            _ => (),
                         }
                     }
-
-                    if !result.is_empty() {
-                        let _ = response_tx.send(Resp::Array(result));
-                        continue;
-                    }
-
-                    if let Some(timeout_ms) = timeout {
-                        let client = BlockingStreamClient {
-                            id: client_id,
-                            response_tx,
-                            waits: resolved_streams,
-                        };
-
-                        for wait in &client.waits {
-                            self.blocking_streams
-                                .waiters
-                                .entry(wait.key.clone())
-                                .or_default()
-                                .push_back(client_id);
-                        }
-                        self.blocking_streams.clients.insert(client_id, client);
-
-                        if timeout_ms > 0.0 {
-                            let sender_clone = self.sender.clone();
-                            tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
-                                let _ = sender_clone
-                                    .send(Client {
-                                        client_id,
-                                        timeout: None,
-                                        response_tx: oneshot::channel().0,
-                                        command: RedisCommand::InternalTimeoutCleanup { client_id },
-                                    })
-                                    .await;
-                            });
-                        }
-                        continue;
-                    }
-
-                    let _ = response_tx.send(Resp::NullBulkString);
-                    continue;
-                }
-                RedisCommand::Type(key) => {
-                    let type_str = match self.database.get(&key) {
-                        None => b"none".as_slice(),
-                        Some(kv) => kv.value.get_value_type(),
-                    };
-                    Resp::SimpleString(type_str.to_vec())
-                }
-                RedisCommand::XRange {
-                    key,
-                    start_time,
-                    end_time,
-                    start_sequence,
-                    end_sequence,
-                } => match self.database.get_mut(&key) {
-                    None => Resp::Array(VecDeque::new()),
-                    Some(kv) => {
-                        if let ValueType::Stream(stream) = &mut kv.value {
-                            let entries = stream.get_range(
-                                start_time,
-                                end_time,
-                                start_sequence,
-                                end_sequence,
-                            );
-                            entries
-                        } else {
-                            Resp::Error(
-                                    b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec()
-                                )
-                        }
-                    }
-                },
-                RedisCommand::XAdd { key, fields, id } => {
-                    let stream = self
-                        .database
-                        .entry(key.clone())
-                        .or_insert_with(|| KeyValue::new(None, ValueType::stream()));
-
-                    if let ValueType::Stream(stream) = &mut stream.value {
-                        match stream.add_entry(fields, id) {
-                            Ok(new_id) => {
-                                let id_str = new_id.get_id_string();
-
-                                // WAKE BLOCKED STREAM CLIENTS
-                                if let Some(queue) = self.blocking_streams.waiters.get(&key) {
-                                    let mut to_wake = Vec::new();
-
-                                    for client_id in queue {
-                                        if let Some(client) =
-                                            self.blocking_streams.clients.get(client_id)
-                                        {
-                                            if let Some(wait) =
-                                                client.waits.iter().find(|w| w.key == key)
-                                            {
-                                                if new_id.time > wait.time
-                                                    || (new_id.time == wait.time
-                                                        && new_id.sequence > wait.sequence)
-                                                {
-                                                    to_wake.push(*client_id);
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    for client_id in to_wake {
-                                        self.wake_stream_client(client_id);
-                                    }
-                                }
-
-                                Resp::BulkString(id_str.into_bytes())
-                            }
-                            Err(err) => Resp::Error(err.into_bytes()),
-                        }
-                    } else {
-                        Resp::Error(
-                            b"WRONGTYPE Operation against a key holding the wrong kind of value"
-                                .to_vec(),
-                        )
+                    _ => {
+                        client.push(command);
+                        let _ = response_tx.send(Resp::SimpleString(b"QUEUED".to_vec()));
                     }
                 }
-                RedisCommand::Get(key) => {
-                    let is_expired = self.database.get(&key).map_or(false, |kv| {
-                        kv.expiry.map_or(false, |e| e < SystemTime::now())
-                    });
-
-                    if is_expired {
-                        self.database.remove(&key);
-                        Resp::NullBulkString
-                    } else {
-                        match self.database.get(&key) {
-                            Some(kv) => {
-                                if let ValueType::String(s) = &kv.value {
-                                    Resp::BulkString(s.clone())
-                                } else {
-                                    Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())
-                                }
-                            }
-                            None => Resp::NullBulkString,
+            } else {
+                let outcome = self.execute_commands(command, client_id);
+                match outcome {
+                    Resp::Array(resps) => {
+                        let _ = response_tx.send(Resp::Array(resps));
+                    }
+                    Resp::BulkString(items) => {
+                        let _ = response_tx.send(Resp::BulkString(items));
+                    }
+                    Resp::Integer(v) => {
+                        let _ = response_tx.send(Resp::Integer(v));
+                    }
+                    Resp::NullArray => {
+                        let _ = response_tx.send(Resp::NullArray);
+                    }
+                    Resp::SimpleString(items) => {
+                        let _ = response_tx.send(Resp::SimpleString(items));
+                    }
+                    Resp::NullBulkString => {
+                        let _ = response_tx.send(Resp::NullBulkString);
+                    }
+                    Resp::BlockingClient { keys, timeout } => {
+                        self.create_blocking_client(client_id, keys, response_tx, timeout)
+                    }
+                    Resp::Exec(redis_commands) => {
+                        let mut responses = VecDeque::new();
+                        for cmd in redis_commands {
+                            responses.push_back(self.execute_commands(cmd, client_id));
                         }
+                        let _ = response_tx.send(Resp::Array(responses));
+                    }
+                    Resp::BlockingStreamClient {
+                        client_id,
+                        resolved_streams,
+                        timeout_ms,
+                    } => self.create_blocking_stream_client(
+                        client_id,
+                        resolved_streams,
+                        response_tx,
+                        timeout_ms,
+                    ),
+                    Resp::None => (),
+                    Resp::Error(items) => {
+                        let _ = response_tx.send(Resp::Error(items));
                     }
                 }
-                RedisCommand::LPush { key, elements } => {
-                    let entry = self
-                        .database
-                        .entry(key.clone())
-                        .or_insert_with(|| KeyValue {
-                            expiry: None,
-                            value: ValueType::List(List::new(key.clone())),
-                        });
-
-                    if let ValueType::List(ref mut list) = entry.value {
-                        list.lpush(elements)
-                    } else {
-                        Resp::Error(b"WRONGTYPE".to_vec())
-                    }
-                }
-                RedisCommand::LLen(key) => {
-                    if let Some(kv) = self.database.get(&key) {
-                        if let ValueType::List(ref list) = kv.value {
-                            list.llen()
-                        } else {
-                            Resp::Error(b"WRONGTYPE".to_vec())
-                        }
-                    } else {
-                        Resp::Integer(0)
-                    }
-                }
-                RedisCommand::Ping => Resp::SimpleString(b"PONG".to_vec()),
-                RedisCommand::Echo(data) => Resp::BulkString(data),
-                RedisCommand::BLPop { keys, timeout } => {
-                    let mut found = None;
-                    for key in &keys {
-                        if let Some(kv) = self.database.get_mut(key) {
-                            if let ValueType::List(ref mut list) = kv.value {
-                                let resp = list.lpop(key, 1);
-
-                                if !matches!(resp, Resp::NullBulkString) {
-                                    found = Some(Resp::Array(VecDeque::from([
-                                        Resp::BulkString(key.clone()),
-                                        resp,
-                                    ])));
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    match found {
-                        Some(found) => {
-                            response_tx.send(found).unwrap();
-                            continue;
-                        }
-                        None => {
-                            let client = BlockingClient {
-                                id: client_id,
-                                response_tx,
-                            };
-
-                            self.blocked_list.register(keys, client);
-                            if timeout > 0.0 {
-                                let sender_clone = self.sender.clone();
-                                let id = client_id;
-
-                                tokio::spawn(async move {
-                                    tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
-
-                                    let _ = sender_clone
-                                        .send(Client {
-                                            client_id: id,
-                                            timeout: None,
-                                            response_tx: oneshot::channel().0,
-                                            command: RedisCommand::InternalTimeoutCleanup {
-                                                client_id: id,
-                                            },
-                                        })
-                                        .await;
-                                });
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-                RedisCommand::InternalTimeoutCleanup {
-                    client_id: target_id,
-                    ..
-                } => {
-                    if let Some(blocked_client) = self.blocked_list.blocked_list.remove(&target_id)
-                    {
-                        for queue in self.blocked_list.waiters.values_mut() {
-                            queue.retain(|id| *id != target_id);
-                        }
-                        let _ = blocked_client.response_tx.send(Resp::NullArray);
-                    }
-
-                    if let Some(stream_client) = self.blocking_streams.clients.remove(&target_id) {
-                        for queue in self.blocking_streams.waiters.values_mut() {
-                            queue.retain(|id| *id != target_id);
-                        }
-                        let _ = stream_client.response_tx.send(Resp::NullArray);
-                    } else {
-                    }
-
-                    continue;
-                }
-                RedisCommand::LRange { key, start, stop } => {
-                    if let Some(kv) = self.database.get(&key) {
-                        if let ValueType::List(ref list) = kv.value {
-                            list.get_list_range(start, stop)
-                        } else {
-                            Resp::Error(b"WRONGTYPE".to_vec())
-                        }
-                    } else {
-                        Resp::Array(VecDeque::new())
-                    }
-                }
-
-                RedisCommand::LPop { key, count } => {
-                    if let Some(kv) = self.database.get_mut(&key) {
-                        if let ValueType::List(ref mut list) = kv.value {
-                            list.lpop(&key, count)
-                        } else {
-                            Resp::Error(b"WRONGTYPE".to_vec())
-                        }
-                    } else {
-                        Resp::NullBulkString
-                    }
-                }
-
-                RedisCommand::Set { key, value, expiry } => {
-                    let expiry_time =
-                        expiry.map(|ms| SystemTime::now() + Duration::from_millis(ms));
-                    self.database.insert(
-                        key,
-                        KeyValue {
-                            value: ValueType::String(value),
-                            expiry: expiry_time,
-                        },
-                    );
-                    Resp::SimpleString(b"OK".to_vec())
-                }
-
-                RedisCommand::RPush { key, elements } => {
-                    let entry = self
-                        .database
-                        .entry(key.clone())
-                        .or_insert_with(|| KeyValue {
-                            expiry: None,
-                            value: ValueType::List(List::new(key.clone())),
-                        });
-
-                    if let ValueType::List(list) = &mut entry.value {
-                        let mut length = list.list.len();
-                        for element in elements {
-                            length += 1;
-                            if !self.blocked_list.wake_one(&key, element.clone()) {
-                                list.rpush(vec![element]);
-                            }
-                        }
-
-                        Resp::Integer(length)
-                    } else {
-                        Resp::Error(b"WRONGTYPE".to_vec())
-                    }
-                }
-            };
-
-            let _ = response_tx.send(outcome);
+            }
         }
     }
 }
