@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     collections::VecDeque,
     time::{Duration, SystemTime},
@@ -16,16 +17,36 @@ use crate::{
     resp::Resp,
     valuetype::ValueType,
 };
-
+pub enum Info {
+    Role,
+    Replication {
+        master_replid: String,
+        master_repl_offset: u64,
+    },
+}
 impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
             RedisCommand::Info { section } => {
-                  if self.master.is_some() {
-                    return Resp::BulkString("role:slave".as_bytes().to_vec())
+                            let mut sections = Vec::new();
 
-                  }
-                 return Resp::BulkString("role:master".as_bytes().to_vec())
+                if let Some(section) = section {
+                    match section.as_str() {
+                        "replication" => {
+                            sections.push(self.role.get_replication());
+                        }
+                        "role" => {
+                            sections.push(self.role.get_role());
+                        }
+                        _ => {
+                            sections.push(self.role.get_replication());
+                            sections.push(self.role.get_role());
+
+                        }
+                    }
+                };
+                
+                return Resp::BulkString(sections.join(":").into());
             }
             RedisCommand::Multi => {
                 self.multi_list.insert(client_id, vec![]);

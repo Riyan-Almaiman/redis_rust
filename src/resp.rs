@@ -13,6 +13,7 @@ pub enum Resp {
     Array(VecDeque<Resp>),
     BulkString(Vec<u8>),
     Integer(usize),
+    
     NullArray,
     SimpleString(Vec<u8>),
     NullBulkString,

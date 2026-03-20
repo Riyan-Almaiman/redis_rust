@@ -7,10 +7,42 @@ use crate::resp::Resp;
 use crate::valuetype::ValueType;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::format;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+pub struct Master {
+    pub replication_id: String,
+    pub replication_offset: u64,
+}
+pub enum Role {
+    Master {
+        replication_id: String,
+        replication_offset: u64,
+    },
+    Slave {
+        master: String,
+    },
+}
+impl Role {
+    pub fn get_replication(&self) -> String {
+        match self {
+            Role::Master {
+                replication_id,
+                replication_offset,
+            } => format!("{}:{}", replication_id, replication_offset),
+            Role::Slave { master } => master.clone(),
+        }
+    } pub fn get_role(&self) -> String {
+        match self {
+            Role::Master {
+                ..
+            } => "master".to_string(),
+            Role::Slave { .. } => "slave".to_string()
+        }
+    }
+}
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
     pub multi_list: HashMap<Uuid, Vec<RedisCommand>>,
@@ -18,7 +50,7 @@ pub struct DB {
     pub blocked_list: BlockingList,
     pub blocking_streams: BlockingStreams,
     pub sender: mpsc::Sender<Client>,
-    pub master: Option<String>
+    pub role: Role,
 }
 #[derive(Debug)]
 pub struct Client {
@@ -38,14 +70,14 @@ impl KeyValue {
     }
 }
 impl DB {
-    pub fn new(master: Option<String>) -> Self {
+    pub fn new(role: Role) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
         Self {
             database: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
-            master: master,
+            role,
             multi_list: HashMap::new(),
             blocked_list: BlockingList {
                 blocked_list: Default::default(),
@@ -192,7 +224,6 @@ impl DB {
             } else {
                 let outcome = self.execute_commands(command, client_id);
                 match outcome {
-
                     Resp::Array(resps) => {
                         let _ = response_tx.send(Resp::Array(resps));
                     }

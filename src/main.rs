@@ -22,6 +22,8 @@ mod xrange;
 
 use std::env;
 
+use rand::distr::Alphanumeric;
+use rand::{RngExt, TryRng, rng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpListener, TcpStream};
@@ -32,7 +34,7 @@ use uuid::Uuid;
 
 use crate::commands::RedisCommand;
 
-use crate::db::DB;
+use crate::db::{DB, Master, Role};
 
 use crate::db::Client;
 
@@ -46,21 +48,28 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let ip_address = "127.0.0.1".to_string();
     let mut port = "6379".to_string();
-    let mut master = None;
+    let mut replica_master = String::new();
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
             port = args[i + 1].clone();
         }
-          if args[i] == "--replicaof" && i + 1 < args.len() {
-            master = Some(args[i + 1].clone());
+        if args[i] == "--replicaof" && i + 1 < args.len() {
+            replica_master = args[i + 1].clone();
         }
     }
+    let role = if replica_master.is_empty() {
+        let mut id = [0u8; 40];
+        rand::rng().try_fill_bytes(&mut id);
 
+           Role::Master { replication_id: String::from_utf8(id.to_vec()).unwrap(), replication_offset: 0 }
+    }else{
+        Role::Slave { master: replica_master }
+    };
     let listener = TcpListener::bind(format!("{}:{}", ip_address, port))
         .await
         .expect("Failed to bind");
 
-    let mut db = DB::new(master);
+    let mut db = DB::new(role);
 
     let db_tx = db.sender.clone();
 
