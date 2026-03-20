@@ -89,8 +89,7 @@ impl KeyValue {
 impl DB {
     pub async fn new(role: Role) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
-           
-    
+
         Self {
             database: HashMap::new(),
             sender: pipeline_tx,
@@ -207,24 +206,23 @@ impl DB {
     }
 
     pub async fn start(&mut self) {
-              match &self.role {
-            Role::Slave { master, replication_id, replication_offset }=> {
-                    if let Ok(mut stream) = TcpStream::connect(master).await {
-                let mut write = Vec::new();
-                let ping = Resp::BulkString(b"PONG".to_vec());
-                ping.write_format(&mut write);
-                let bytes = stream.write_all(write.as_slice()).await;
-                if let Ok(r) = bytes {
-
+        match &self.role {
+            Role::Slave {
+                master,
+                replication_id,
+                replication_offset,
+            } => {
+                if let Ok(mut stream) = TcpStream::connect(master).await {
+                    let mut write = Vec::new();
+                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(b"PONG".to_vec())]));
+                    ping.write_format(&mut write);
+                    let bytes = stream.write_all(write.as_slice()).await;
+                    if let Ok(r) = bytes {}
+                } else {
+                    panic!("couldnt connect {}", master);
                 }
             }
-            else {
-                                panic!("couldnt connect {}", master);
-
-            }
-            }
-            _=> ()
-           
+            _ => (),
         }
         while let Some(request) = self.receiver.recv().await {
             let Client {
