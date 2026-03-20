@@ -117,7 +117,7 @@ pub async fn start_replication(
                 if arr.is_empty() {
                     continue;
                 }
-
+                println!("{:?}", arr);
                 let cmd_name = arr.pop_front().unwrap();
                 let cmd_name_bytes = match Resp::get_bytes(&cmd_name) {
                     Some(b) => b,
@@ -134,7 +134,7 @@ pub async fn start_replication(
                     .filter_map(|a| Resp::get_bytes(a))
                     .filter_map(|b| std::str::from_utf8(b).ok())
                     .collect();
-
+                
                 let command = match RedisCommand::from_parts(cmd_name, &args) {
                     Ok(cmd) => cmd,
                     Err(e) => {
