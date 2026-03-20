@@ -227,22 +227,20 @@ impl DB {
                         write.clear();
                         println!("Response: {:?}", &buf[..n]);
                         let port = Resp::Array(VecDeque::from([Resp::BulkString(
-                            format!("REPLCONF listening-port {port}")
-                                .as_bytes()
-                                .to_vec(),
-                        )]));
+                         "REPLCONF".as_bytes().to_vec()
+                        ), Resp::BulkString("listening-port".as_bytes().to_vec()), Resp::BulkString(port.as_bytes().to_vec())]));
                         port.write_format(&mut write);
                         let bytes = stream.write_all(&write.as_slice()).await;
                         if let Ok(r) = bytes {
                             let n = stream.read(&mut buf).await.unwrap();
                             write.clear();
                             println!("Response: {:?}", &buf[..n]);
-                            let port = Resp::Array(VecDeque::from([Resp::BulkString(
-                                format!("REPLCONF psync2")
+                            let protocol = Resp::Array(VecDeque::from([Resp::BulkString(
+                              "REPLCONF" 
                                     .as_bytes()
                                     .to_vec(),
-                            )]));
-                            port.write_format(&mut write);
+                            ), Resp::BulkString("psync2".as_bytes().to_vec())]));
+                            protocol.write_format(&mut write);
                             let bytes = stream.write_all(&write.as_slice()).await;
                         }
                     }
