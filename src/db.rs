@@ -9,7 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::format;
 use std::time::{Duration, SystemTime};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -26,6 +26,7 @@ pub enum Role {
     Slave {
         master: String,
         replication_id: String,
+        port: String,
         replication_offset: u64,
     },
 }
@@ -44,6 +45,7 @@ impl Role {
             Role::Slave {
                 master,
                 replication_id,
+                port,
                 replication_offset,
             } => format!(
                 "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
@@ -210,14 +212,24 @@ impl DB {
             Role::Slave {
                 master,
                 replication_id,
+                port,
                 replication_offset,
             } => {
                 if let Ok(mut stream) = TcpStream::connect(master).await {
+                    let mut buf = [0; 1024];
+
                     let mut write = Vec::new();
                     let ping = Resp::Array(VecDeque::from([Resp::BulkString(b"PING".to_vec())]));
                     ping.write_format(&mut write);
                     let bytes = stream.write_all(write.as_slice()).await;
-                    if let Ok(r) = bytes {}
+                    if let Ok(r) = bytes {
+
+                            let n = stream.read(&mut buf).await.unwrap();
+
+                                        println!("Response: {:?}", &buf[..n]);
+                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(format!("REPLCONF listening-port {port}").as_bytes().to_vec())]));
+
+                    }
                 } else {
                     panic!("couldnt connect {}", master);
                 }

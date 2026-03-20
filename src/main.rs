@@ -75,6 +75,7 @@ async fn main() {
         let port = conn.next();
         if let (Some(ip), Some(port)) = (ip, port) {
             Role::Slave {
+               port: port.to_string(),
                 master: format!("{}:{}", ip, port),
                 replication_id: id,
                 replication_offset: 0,
