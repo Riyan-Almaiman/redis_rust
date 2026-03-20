@@ -9,6 +9,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::format;
 use std::time::{Duration, SystemTime};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -23,7 +25,7 @@ pub enum Role {
     },
     Slave {
         master: String,
-                replication_id: String,
+        replication_id: String,
         replication_offset: u64,
     },
 }
@@ -33,15 +35,28 @@ impl Role {
             Role::Master {
                 replication_id,
                 replication_offset,
-            } => format!("{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n", self.get_role(), replication_id, replication_offset),
-            Role::Slave { master, replication_id, replication_offset } => format!("{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n", self.get_role(), replication_id, replication_offset),
+            } => format!(
+                "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
+                self.get_role(),
+                replication_id,
+                replication_offset
+            ),
+            Role::Slave {
+                master,
+                replication_id,
+                replication_offset,
+            } => format!(
+                "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
+                self.get_role(),
+                replication_id,
+                replication_offset
+            ),
         }
-    } pub fn get_role(&self) -> String {
+    }
+    pub fn get_role(&self) -> String {
         match self {
-            Role::Master {
-                ..
-            } => "role:master".to_string(),
-            Role::Slave { .. } => "role:slave".to_string()
+            Role::Master { .. } => "role:master".to_string(),
+            Role::Slave { .. } => "role:slave".to_string(),
         }
     }
 }
@@ -72,9 +87,10 @@ impl KeyValue {
     }
 }
 impl DB {
-    pub fn new(role: Role) -> Self {
+    pub async fn new(role: Role) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
-
+           
+    
         Self {
             database: HashMap::new(),
             sender: pipeline_tx,
@@ -191,6 +207,25 @@ impl DB {
     }
 
     pub async fn start(&mut self) {
+              match &self.role {
+            Role::Slave { master, replication_id, replication_offset }=> {
+                    if let Ok(mut stream) = TcpStream::connect(master).await {
+                let mut write = Vec::new();
+                let ping = Resp::BulkString(b"PONG".to_vec());
+                ping.write_format(&mut write);
+                let bytes = stream.write_all(write.as_slice()).await;
+                if let Ok(r) = bytes {
+
+                }
+            }
+            else {
+                                panic!("couldnt connect {}", master);
+
+            }
+            }
+            _=> ()
+           
+        }
         while let Some(request) = self.receiver.recv().await {
             let Client {
                 command,

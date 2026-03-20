@@ -20,6 +20,7 @@ mod stream;
 mod valuetype;
 mod xrange;
 
+use core::panic;
 use std::any::Any;
 use std::env;
 
@@ -48,7 +49,7 @@ use rand::distr::{Alphanumeric, SampleString};
 async fn main() {
     let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let args: Vec<String> = env::args().collect();
-    let ip_address = "127.0.0.1".to_string();
+    let ip_address = "localhost".to_string();
     let mut port = "6379".to_string();
     let mut replica_master = String::new();
     for i in 0..args.len() {
@@ -60,20 +61,41 @@ async fn main() {
         }
     }
     let role = if replica_master.is_empty() {
-        let  id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
+        let id = Alphanumeric.sample_string(&mut rand::rng(), 40);
 
-           Role::Master { replication_id: id, replication_offset: 0 }
-    }else{
-                let  id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
+        Role::Master {
+            replication_id: id,
+            replication_offset: 0,
+        }
+    } else {
+        let mut conn = replica_master.split_whitespace();
+        let ip = conn.next();
+        let id: String = Alphanumeric.sample_string(&mut rand::rng(), 40);
 
-        Role::Slave { master: replica_master, replication_id: id, replication_offset: 0  }
+        let port = conn.next();
+        if let (Some(ip), Some(port)) = (ip, port) {
+            Role::Slave {
+                master: format!("{}:{}", ip, port),
+                replication_id: id,
+                replication_offset: 0,
+            }
+        } else {
+            panic!("invalid ip")
+        }
+
+     
     };
-    let listener = TcpListener::bind(format!("{}:{}", ip_address, port))
+    let listener: TcpListener = TcpListener::bind(format!("{}:{}", ip_address, port))
         .await
         .expect("Failed to bind");
 
-    let mut db = DB::new(role);
-
+    let mut db = DB::new(role).await;
+    // if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", ip, port)).await {
+    //     let mut write = Vec::new();
+    //     let ping = Resp::BulkString(b"PONG".to_vec());
+    //     ping.write_format(&mut write);
+    //     let response = stream.write(write.as_slice());
+    // }
     let db_tx = db.sender.clone();
 
     tokio::spawn(async move {
@@ -83,7 +105,7 @@ async fn main() {
     loop {
         let (stream, _) = listener.accept().await.expect("Accept failed");
 
-        let connection_tx = db_tx.clone();
+        let connection_tx: mpsc::Sender<Client> = db_tx.clone();
 
         tokio::spawn(async move {
             handle_stream(stream, connection_tx, Uuid::new_v4()).await;

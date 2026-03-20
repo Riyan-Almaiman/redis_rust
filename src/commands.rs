@@ -79,6 +79,7 @@ pub enum RedisCommand {
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
+    
         match command.to_lowercase().as_str() {
             "info" => {
                 if args.len() >= 1 {
