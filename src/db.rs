@@ -223,12 +223,28 @@ impl DB {
                     ping.write_format(&mut write);
                     let bytes = stream.write_all(write.as_slice()).await;
                     if let Ok(r) = bytes {
-
+                        let n = stream.read(&mut buf).await.unwrap();
+                        write.clear();
+                        println!("Response: {:?}", &buf[..n]);
+                        let port = Resp::Array(VecDeque::from([Resp::BulkString(
+                            format!("REPLCONF listening-port {port}")
+                                .as_bytes()
+                                .to_vec(),
+                        )]));
+                        port.write_format(&mut write);
+                        let bytes = stream.write_all(&write.as_slice()).await;
+                        if let Ok(r) = bytes {
                             let n = stream.read(&mut buf).await.unwrap();
-
-                                        println!("Response: {:?}", &buf[..n]);
-                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(format!("REPLCONF listening-port {port}").as_bytes().to_vec())]));
-
+                            write.clear();
+                            println!("Response: {:?}", &buf[..n]);
+                            let port = Resp::Array(VecDeque::from([Resp::BulkString(
+                                format!("REPLCONF psync2")
+                                    .as_bytes()
+                                    .to_vec(),
+                            )]));
+                            port.write_format(&mut write);
+                            let bytes = stream.write_all(&write.as_slice()).await;
+                        }
                     }
                 } else {
                     panic!("couldnt connect {}", master);
