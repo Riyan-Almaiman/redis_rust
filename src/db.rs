@@ -214,7 +214,7 @@ impl DB {
             } => {
                 if let Ok(mut stream) = TcpStream::connect(master).await {
                     let mut write = Vec::new();
-                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(b"PONG".to_vec())]));
+                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(b"PING".to_vec())]));
                     ping.write_format(&mut write);
                     let bytes = stream.write_all(write.as_slice()).await;
                     if let Ok(r) = bytes {}
