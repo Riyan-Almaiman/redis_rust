@@ -50,11 +50,11 @@ async fn main() {
     let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let args: Vec<String> = env::args().collect();
     let ip_address = "localhost".to_string();
-    let mut port = "6379".to_string();
+    let mut server_port = "6379".to_string();
     let mut replica_master = String::new();
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
-            port = args[i + 1].clone();
+            server_port = args[i + 1].clone();
         }
         if args[i] == "--replicaof" && i + 1 < args.len() {
             replica_master = args[i + 1].clone();
@@ -75,7 +75,7 @@ async fn main() {
         let port = conn.next();
         if let (Some(ip), Some(port)) = (ip, port) {
             Role::Slave {
-               port: port.to_string(),
+               port: server_port.to_string(),
                 master: format!("{}:{}", ip, port),
                 replication_id: id,
                 replication_offset: 0,
@@ -86,7 +86,7 @@ async fn main() {
 
      
     };
-    let listener: TcpListener = TcpListener::bind(format!("{}:{}", ip_address, port))
+    let listener: TcpListener = TcpListener::bind(format!("{}:{}", ip_address, server_port))
         .await
         .expect("Failed to bind");
 
