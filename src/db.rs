@@ -49,8 +49,8 @@ impl Role {
     }
     pub fn get_role(&self) -> String {
         match self {
-            Role::Master { .. } => "role:master".to_string(),
-            Role::Slave { .. } => "role:slave".to_string(),
+            Role::Master { .. } => "role:master\r\n".to_string(),
+            Role::Slave { .. } => "role:slave\r\n".to_string(),
         }
     }
 }
