@@ -180,8 +180,7 @@ impl DB {
                     }
                     RedisCommand::Discard => {
                         let outcome = self.execute_commands(command, client_id);
-                                                        let _ = response_tx.send(outcome);
-
+                        let _ = response_tx.send(outcome);
                     }
                     _ => {
                         client.push(command);
@@ -191,6 +190,7 @@ impl DB {
             } else {
                 let outcome = self.execute_commands(command, client_id);
                 match outcome {
+
                     Resp::Array(resps) => {
                         let _ = response_tx.send(Resp::Array(resps));
                     }

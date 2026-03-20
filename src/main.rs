@@ -15,10 +15,12 @@ mod lists;
 mod blocking_list;
 mod blocking_stream;
 mod db;
-mod stream;
 mod db_commands;
+mod stream;
 mod valuetype;
 mod xrange;
+
+use std::env;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -41,7 +43,17 @@ use crate::resp::Resp;
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379")
+    let args: Vec<String> = env::args().collect();
+    let ip_address = "127.0.0.1".to_string();
+    let mut port = "6379".to_string();
+    for i in 0..args.len() {
+        if args[i] == "--port" && i + 1 < args.len() {
+            port = args[i + 1].clone();
+            break;
+        }
+    }
+
+    let listener = TcpListener::bind(format!("{}:{}", ip_address, port))
         .await
         .expect("Failed to bind");
 
@@ -93,16 +105,15 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                     let args: Vec<&str> = arr
                         .iter()
                         .map(|a| {
-                            let bytes = Resp::get_bytes(a).unwrap();
+                            let bytes: &[u8] = Resp::get_bytes(a).unwrap();
                             std::str::from_utf8(bytes).expect("Invalid UTF-8")
                         })
                         .collect();
 
-                    let command =
-                            match         RedisCommand::from_parts(cmd_name, &args) {
-                                Ok(cmd) => cmd,
-                                Err(e) => RedisCommand::Error(e)
-                            };
+                    let command = match RedisCommand::from_parts(cmd_name, &args) {
+                        Ok(cmd) => cmd,
+                        Err(e) => RedisCommand::Error(e),
+                    };
                     commands.push(command);
                 }
             }
@@ -122,7 +133,7 @@ async fn execute_commands(
 
     for parsed_command in cmds {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        
+
         let client_req = Client {
             client_id: id,
             timeout: None,

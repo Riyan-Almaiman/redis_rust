@@ -71,49 +71,9 @@ impl Resp {
             }
             Resp::NullBulkString => out.extend_from_slice(b"$-1\r\n"),
             Resp::NullArray => out.extend_from_slice(b"*-1\r\n"),
-            _=> panic!("")
+            _=> panic!("unhandled resp type")
         }
     }
-    pub fn formate_cmd(&self) -> Vec<u8> {
-        match self {
-            Resp::SimpleString(bytes) => {
-                let mut out = b"+".to_vec();
-                out.extend(bytes);
-                out.extend(b"\r\n");
-                out
-            }
-            Resp::Integer(number_bytes) => {
-                let mut out = b":".to_vec();
-                out.extend(number_bytes.to_string().as_bytes());
-                out.extend(b"\r\n");
-                out
-            }
-            Resp::BulkString(bytes) => {
-                let mut out = b"$".to_vec();
-                out.extend(bytes.len().to_string().as_bytes());
-                out.extend(b"\r\n");
-                out.extend(bytes);
-                out.extend(b"\r\n");
-                out
-            }
-            Resp::Array(items) => {
-                let mut out = b"*".to_vec();
-                out.extend(items.len().to_string().as_bytes());
-                out.extend(b"\r\n");
-                for item in items {
-                    out.extend(Self::formate_cmd(item));
-                }
-                out
-            }
-            Resp::NullBulkString => b"$-1\r\n".to_vec(),
-            Resp::NullArray => b"*-1\r\n".to_vec(),
-            Resp::Error(bytes) => {
-                let mut out = (b"-").to_vec();
-                out.extend(bytes);
-                out.extend(b"\r\n");
-                out
-            }            _=> panic!("")
-
-        }
-    }
+ 
+    
 }

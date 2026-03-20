@@ -11,15 +11,13 @@ use uuid::Uuid;
 #[derive(Debug)]
 
 pub struct List {
-    key: Vec<u8>,
     pub(crate) list: VecDeque<Vec<u8>>,
 }
 
 
 impl List {
-    pub fn new(key: Vec<u8>) -> Self {
+    pub fn new() -> Self {
         List {
-            key,
             list: VecDeque::new(),
         }
     }
@@ -33,7 +31,7 @@ impl List {
     }
 
     pub fn lpop(&mut self, key: &Vec<u8>, count: usize) -> Resp {
-        let key_str = match std::str::from_utf8(&key) {
+         match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(_) => {
                 return Resp::Error(
@@ -104,7 +102,7 @@ impl List {
         return Resp::Array(VecDeque::from(items));
     }
     pub fn lpush(&mut self, elements: Vec<Vec<u8>>) -> Resp {
-        for (i, m) in elements.iter().enumerate() {
+        for (i, _) in elements.iter().enumerate() {
             self.list.push_front(elements[i].clone())
         }
 

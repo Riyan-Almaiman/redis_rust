@@ -232,7 +232,7 @@ impl DB {
                     .entry(key.clone())
                     .or_insert_with(|| KeyValue {
                         expiry: None,
-                        value: ValueType::List(List::new(key.clone())),
+                        value: ValueType::List(List::new()),
                     });
 
                 if let ValueType::List(ref mut list) = entry.value {
@@ -339,7 +339,7 @@ impl DB {
                     .entry(key.clone())
                     .or_insert_with(|| KeyValue {
                         expiry: None,
-                        value: ValueType::List(List::new(key.clone())),
+                        value: ValueType::List(List::new()),
                     });
 
                 if let ValueType::List(list) = &mut entry.value {
