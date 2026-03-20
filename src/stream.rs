@@ -1,4 +1,4 @@
-use crate::commands::StreamEntryIdCommandType;
+use crate::commands_parser::StreamEntryIdCommandType;
 use crate::resp::Resp;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -39,7 +39,8 @@ impl Stream {
             time_stamp_entries: BTreeMap::new(),
             last_id: None,
         }
-    }pub fn get_last_id(&self) -> (u64, u64) {
+    }
+    pub fn get_last_id(&self) -> (u64, u64) {
         if let Some((&ts, sequences)) = self.time_stamp_entries.iter().next_back() {
             if let Some((&seq, _)) = sequences.entries.iter().next_back() {
                 return (ts, seq);
@@ -47,15 +48,10 @@ impl Stream {
         }
         (0, 0)
     }
-    pub fn get_read_streams(
-        &self,
-        start_time: u64,
-        start_sequence: u64,
-    ) -> Resp {
+    pub fn get_read_streams(&self, start_time: u64, start_sequence: u64) -> Resp {
         let mut results = Vec::new();
 
         for (&timestamp, sequences) in self.time_stamp_entries.range(start_time..) {
-
             let current_start = if timestamp == start_time {
                 start_sequence
             } else {
@@ -63,7 +59,6 @@ impl Stream {
             };
 
             for (&seq, entry) in sequences.entries.range(current_start..) {
-
                 if timestamp == start_time && seq == start_sequence {
                     continue;
                 }
@@ -114,10 +109,13 @@ impl Stream {
                         fields_resp.push_back(Resp::BulkString(v.clone()));
                     }
 
-                    results.push(Resp::Array(vec![
-                        Resp::BulkString(id_str.into_bytes()),
-                        Resp::Array(fields_resp),
-                    ].into()));
+                    results.push(Resp::Array(
+                        vec![
+                            Resp::BulkString(id_str.into_bytes()),
+                            Resp::Array(fields_resp),
+                        ]
+                        .into(),
+                    ));
                 }
             }
         }

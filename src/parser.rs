@@ -136,7 +136,7 @@ impl Parser {
         let num = self.read_until_clrf();
         let number = match num {
             Some(n) => match Self::vec_to_i64(&n) {
-                Some(n) => {n},
+                Some(n) => n,
                 None => return InvalidCommand,
             },
             None => return InvalidCommand,

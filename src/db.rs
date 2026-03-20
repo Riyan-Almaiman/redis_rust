@@ -1,6 +1,7 @@
 use crate::blocking_list::{BlockingClient, BlockingList};
 use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
-use crate::commands::RedisCommand;
+use crate::command_router::CommandResult;
+use crate::commands_parser::RedisCommand;
 use crate::lists::List;
 use crate::parser;
 use crate::resp::Resp;
@@ -18,6 +19,8 @@ pub struct Master {
     pub replication_id: String,
     pub replication_offset: u64,
 }
+#[derive(Clone)]
+
 pub enum Role {
     Master {
         replication_id: String,
@@ -55,51 +58,42 @@ impl Role {
             ),
         }
     }
-        pub fn get_repl_id(&self) -> String {
+    pub fn get_repl_id(&self) -> String {
         match self {
             Role::Master {
                 replication_id,
                 replication_offset,
-            } => 
-                replication_id.clone(),
-    
+            } => replication_id.clone(),
+
             Role::Slave {
                 master,
                 replication_id,
                 port,
                 replication_offset,
-            } =>   {                replication_id.clone()
-}
-            
-            
+            } => replication_id.clone(),
         }
-        }
-           pub fn get_repl_offset(&self) -> String {
+    }
+    pub fn get_repl_offset(&self) -> String {
         match self {
             Role::Master {
                 replication_id,
                 replication_offset,
-            } => {
-                replication_offset.to_string()
-        },
+            } => replication_offset.to_string(),
             Role::Slave {
                 master,
                 replication_id,
                 port,
                 replication_offset,
-            } =>  {
-            
-                replication_offset.to_string()}
-            
-        }}
-    
+            } => replication_offset.to_string(),
+        }
+    }
+
     pub fn get_role(&self) -> String {
         match self {
             Role::Master { .. } => "role:master".to_string(),
             Role::Slave { .. } => "role:slave".to_string(),
         }
     }
-
 }
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
@@ -247,59 +241,6 @@ impl DB {
     }
 
     pub async fn start(&mut self) {
-        match &self.role {
-            Role::Slave {
-                master,
-                replication_id,
-                port,
-                replication_offset,
-            } => {
-                if let Ok(mut stream) = TcpStream::connect(master).await {
-                    let mut buf = [0; 1024];
-
-                    let mut write = Vec::new();
-                    let ping = Resp::Array(VecDeque::from([Resp::BulkString(b"PING".to_vec())]));
-                    ping.write_format(&mut write);
-                    let bytes = stream.write_all(write.as_slice()).await;
-                    if let Ok(r) = bytes {
-                        let n = stream.read(&mut buf).await.unwrap();
-                        write.clear();
-                        println!("Response: {:?}", &buf[..n]);
-                        let port = Resp::Array(VecDeque::from([Resp::BulkString(
-                         "REPLCONF".as_bytes().to_vec()
-                        ), Resp::BulkString("listening-port".as_bytes().to_vec()), Resp::BulkString(port.as_bytes().to_vec())]));
-                        port.write_format(&mut write);
-                        let bytes = stream.write_all(&write.as_slice()).await;
-                        if let Ok(r) = bytes {
-                            let n = stream.read(&mut buf).await.unwrap();
-                            write.clear();
-                            println!("Response: {:?}", &buf[..n]);
-                            let protocol = Resp::Array(VecDeque::from([Resp::BulkString(
-                              "REPLCONF" 
-                                    .as_bytes()
-                                    .to_vec(),
-                            ), Resp::BulkString("capa".as_bytes().to_vec()),  Resp::BulkString("psync2".as_bytes().to_vec())]));
-                            protocol.write_format(&mut write);
-                            let bytes: Result<(), std::io::Error> = stream.write_all(&write.as_slice()).await;
-                        }     if let Ok(r) = bytes {
-                            let n = stream.read(&mut buf).await.unwrap();
-                            write.clear();
-                            println!("Response: {:?}", &buf[..n]);
-                            let psync = Resp::Array(VecDeque::from([Resp::BulkString(
-                              "PSYNC" 
-                                    .as_bytes()
-                                    .to_vec(),
-                            ), Resp::BulkString("?".as_bytes().to_vec()),  Resp::BulkString("-1".as_bytes().to_vec())]));
-                            psync.write_format(&mut write);
-                            let bytes: Result<(), std::io::Error> = stream.write_all(&write.as_slice()).await;
-                        }
-                    }
-                } else {
-                    panic!("couldnt connect {}", master);
-                }
-            }
-            _ => (),
-        }
         while let Some(request) = self.receiver.recv().await {
             let Client {
                 command,
@@ -311,73 +252,63 @@ impl DB {
             if let Some(client) = self.multi_list.get_mut(&client_id) {
                 match command {
                     RedisCommand::Exec => {
-                        let outcome = self.execute_commands(command, client_id);
-                        match outcome {
-                            Resp::Exec(redis_commands) => {
-                                let mut responses = VecDeque::new();
-                                for cmd in redis_commands {
-                                    responses.push_back(self.execute_commands(cmd, client_id));
-                                }
-                                let _ = response_tx.send(Resp::Array(responses));
+                        let cmds = self.multi_list.remove(&client_id).unwrap_or_default();
+
+                        let mut responses = VecDeque::new();
+
+                        for cmd in cmds {
+                            if let CommandResult::Response(r) =
+                                self.execute_commands(cmd, client_id)
+                            {
+                                responses.push_back(r);
                             }
-                            _ => (),
                         }
+
+                        let _ = response_tx.send(Resp::Array(responses));
                     }
+
                     RedisCommand::Discard => {
-                        let outcome = self.execute_commands(command, client_id);
-                        let _ = response_tx.send(outcome);
+                        self.multi_list.remove(&client_id);
+                        let _ = response_tx.send(Resp::SimpleString(b"OK".to_vec()));
                     }
+
                     _ => {
                         client.push(command);
                         let _ = response_tx.send(Resp::SimpleString(b"QUEUED".to_vec()));
                     }
                 }
-            } else {
-                let outcome = self.execute_commands(command, client_id);
-                match outcome {
-                    Resp::Array(resps) => {
-                        let _ = response_tx.send(Resp::Array(resps));
-                    }
-                    Resp::BulkString(items) => {
-                        let _ = response_tx.send(Resp::BulkString(items));
-                    }
-                    Resp::Integer(v) => {
-                        let _ = response_tx.send(Resp::Integer(v));
-                    }
-                    Resp::NullArray => {
-                        let _ = response_tx.send(Resp::NullArray);
-                    }
-                    Resp::SimpleString(items) => {
-                        let _ = response_tx.send(Resp::SimpleString(items));
-                    }
-                    Resp::NullBulkString => {
-                        let _ = response_tx.send(Resp::NullBulkString);
-                    }
-                    Resp::BlockingClient { keys, timeout } => {
-                        self.create_blocking_client(client_id, keys, response_tx, timeout)
-                    }
-                    Resp::Exec(redis_commands) => {
-                        let mut responses = VecDeque::new();
-                        for cmd in redis_commands {
-                            responses.push_back(self.execute_commands(cmd, client_id));
-                        }
-                        let _ = response_tx.send(Resp::Array(responses));
-                    }
-                    Resp::BlockingStreamClient {
-                        client_id,
-                        resolved_streams,
-                        timeout_ms,
-                    } => self.create_blocking_stream_client(
-                        client_id,
-                        resolved_streams,
-                        response_tx,
-                        timeout_ms,
-                    ),
-                    Resp::None => (),
-                    Resp::Error(items) => {
-                        let _ = response_tx.send(Resp::Error(items));
-                    }
+
+                continue; // VERY IMPORTANT
+            }
+            let outcome = self.execute_commands(command, client_id);
+            match outcome {
+                CommandResult::Response(resp) => {
+                    let _ = response_tx.send(resp);
                 }
+
+                CommandResult::BlockList { keys, timeout } => {
+                    self.create_blocking_client(client_id, keys, response_tx, timeout);
+                }
+
+                CommandResult::BlockStream {
+                    client_id,
+                    streams,
+                    timeout_ms,
+                } => {
+                    self.create_blocking_stream_client(client_id, streams, response_tx, timeout_ms);
+                }
+
+                CommandResult::Exec(cmds) => {
+                    let mut responses = VecDeque::new();
+                    for cmd in cmds {
+                        if let CommandResult::Response(r) = self.execute_commands(cmd, client_id) {
+                            responses.push_back(r);
+                        }
+                    }
+                    let _ = response_tx.send(Resp::Array(responses));
+                }
+
+                CommandResult::None => {}
             }
         }
     }

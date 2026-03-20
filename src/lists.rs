@@ -1,7 +1,7 @@
-use crate::db::{Client};
+use crate::RedisCommand;
+use crate::db::Client;
 use crate::resp::Resp;
 use crate::resp::Resp::Integer;
-use crate::RedisCommand;
 use indexmap::IndexMap;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -13,7 +13,6 @@ use uuid::Uuid;
 pub struct List {
     pub(crate) list: VecDeque<Vec<u8>>,
 }
-
 
 impl List {
     pub fn new() -> Self {
@@ -31,12 +30,10 @@ impl List {
     }
 
     pub fn lpop(&mut self, key: &Vec<u8>, count: usize) -> Resp {
-         match std::str::from_utf8(&key) {
+        match std::str::from_utf8(&key) {
             Ok(v) => v.to_string(),
             Err(_) => {
-                return Resp::Error(
-                    "Invalid UTF-8 key".to_string().as_bytes().to_vec(),
-                );
+                return Resp::Error("Invalid UTF-8 key".to_string().as_bytes().to_vec());
             }
         };
 

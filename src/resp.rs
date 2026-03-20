@@ -6,26 +6,18 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::blocking_stream::StreamWait;
-use crate::commands::RedisCommand;
+use crate::commands_parser::RedisCommand;
 
 #[derive(Clone, Debug)]
 pub enum Resp {
     Array(VecDeque<Resp>),
     BulkString(Vec<u8>),
     Integer(usize),
-    
+
     NullArray,
     SimpleString(Vec<u8>),
     NullBulkString,
-    BlockingClient {
-        keys: Vec<Vec<u8>>,
-        timeout: f64
-    },
-    Exec(Vec<RedisCommand>),
-    BlockingStreamClient {
-        client_id: Uuid, resolved_streams:Vec<StreamWait> , timeout_ms:f64 
-    },
-    None,
+
     Error(Vec<u8>),
 }
 
@@ -72,9 +64,7 @@ impl Resp {
             }
             Resp::NullBulkString => out.extend_from_slice(b"$-1\r\n"),
             Resp::NullArray => out.extend_from_slice(b"*-1\r\n"),
-            _=> panic!("unhandled resp type")
+            _ => panic!("unhandled resp type"),
         }
     }
- 
-    
 }

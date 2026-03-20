@@ -6,24 +6,26 @@ mod resp;
 
 mod parser;
 
-mod commands;
+mod commands_parser;
 
-mod connection;
 
 mod lists;
 
 mod blocking_list;
 mod blocking_stream;
+mod command_router;
+mod commands;
 mod db;
 mod db_commands;
 mod stream;
 mod valuetype;
-mod xrange;
+mod replication;
 
 use core::panic;
 use std::any::Any;
 use std::env;
-
+use base64::Engine;
+use base64::engine::general_purpose;
 use rand::{Rng, RngExt, TryRng, rng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -33,7 +35,7 @@ use tokio::sync::mpsc;
 
 use uuid::Uuid;
 
-use crate::commands::RedisCommand;
+use crate::commands_parser::RedisCommand;
 
 use crate::db::{DB, Master, Role};
 
@@ -47,11 +49,12 @@ use rand::distr::{Alphanumeric, SampleString};
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 
 async fn main() {
-    let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let args: Vec<String> = env::args().collect();
+    const EMPTY_RDB_BASE64: &str = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
     let ip_address = "localhost".to_string();
     let mut server_port = "6379".to_string();
     let mut replica_master = String::new();
+
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
             server_port = args[i + 1].clone();
@@ -60,6 +63,7 @@ async fn main() {
             replica_master = args[i + 1].clone();
         }
     }
+
     let role = if replica_master.is_empty() {
         let id = Alphanumeric.sample_string(&mut rand::rng(), 40);
 
@@ -70,50 +74,54 @@ async fn main() {
     } else {
         let mut conn = replica_master.split_whitespace();
         let ip = conn.next();
+        let port = conn.next();
+
         let id: String = Alphanumeric.sample_string(&mut rand::rng(), 40);
 
-        let port = conn.next();
         if let (Some(ip), Some(port)) = (ip, port) {
             Role::Slave {
-               port: server_port.to_string(),
+                port: server_port.clone(),
                 master: format!("{}:{}", ip, port),
                 replication_id: id,
                 replication_offset: 0,
             }
         } else {
-            panic!("invalid ip")
+            panic!("invalid replicaof format");
         }
-
-     
     };
+
+    let role_for_replication = role.clone();
+
     let listener: TcpListener = TcpListener::bind(format!("{}:{}", ip_address, server_port))
         .await
         .expect("Failed to bind");
 
     let mut db = DB::new(role).await;
-    // if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", ip, port)).await {
-    //     let mut write = Vec::new();
-    //     let ping = Resp::BulkString(b"PONG".to_vec());
-    //     ping.write_format(&mut write);
-    //     let response = stream.write(write.as_slice());
-    // }
     let db_tx = db.sender.clone();
 
+    // DB loop
     tokio::spawn(async move {
         db.start().await;
     });
 
+    if let Role::Slave { master, .. } = role_for_replication {
+        let tx = db_tx.clone();
+
+        tokio::spawn(async move {
+            replication::start_replication(master, tx).await;
+        });
+    }
+
     loop {
         let (stream, _) = listener.accept().await.expect("Accept failed");
 
-        let connection_tx: mpsc::Sender<Client> = db_tx.clone();
+        let connection_tx = db_tx.clone();
 
         tokio::spawn(async move {
             handle_stream(stream, connection_tx, Uuid::new_v4()).await;
         });
     }
 }
-
 async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
 
@@ -148,10 +156,7 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         })
                         .collect();
 
-                    let command = match RedisCommand::from_parts(cmd_name, &args) {
-                        Ok(cmd) => cmd,
-                        Err(e) => RedisCommand::Error(e),
-                    };
+                    let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
                     commands.push(command);
                 }
             }
@@ -166,12 +171,14 @@ async fn execute_commands(
     tx: mpsc::Sender<Client>,
     id: Uuid,
     cmds: Vec<RedisCommand>,
-) {
+) {let mut send_rdb = false;
     let mut bytes_batch = Vec::with_capacity(4096);
 
     for parsed_command in cmds {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
+        if matches!(parsed_command, RedisCommand::PSYNC { .. }) {
+            send_rdb = true;
+        }
         let client_req = Client {
             client_id: id,
             timeout: None,
@@ -190,5 +197,15 @@ async fn execute_commands(
 
     if !bytes_batch.is_empty() {
         let _ = stream.write_all(&bytes_batch).await;
+    }
+    if send_rdb {
+        let rdb_bytes = general_purpose::STANDARD
+            .decode("UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==")
+            .unwrap();
+
+        let header = format!("${}\r\n", rdb_bytes.len());
+
+        stream.write_all(header.as_bytes()).await.unwrap();
+        stream.write_all(&rdb_bytes).await.unwrap();
     }
 }
