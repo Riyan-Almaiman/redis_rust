@@ -164,7 +164,7 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
-                    resp_commands.push(cmd);
+                    resp_commands.push(cmd_resp);
                     commands.push(command);
                 }
             }
