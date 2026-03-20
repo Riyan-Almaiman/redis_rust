@@ -75,12 +75,16 @@ pub enum RedisCommand {
     Discard,
     Info {
         section: Option<String>
-    }
+    },
+    REPLCONF 
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
     
         match command.to_lowercase().as_str() {
+            "replyconf" => {
+Ok(RedisCommand::REPLCONF)
+            }
             "info" => {
                 if args.len() >= 1 {
                     Ok(RedisCommand::Info { section: Some(args[0].to_string()) })

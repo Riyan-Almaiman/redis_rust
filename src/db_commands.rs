@@ -27,6 +27,9 @@ pub enum Info {
 impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
+            RedisCommand::REPLCONF => {
+                return Resp::SimpleString(b"OK".to_vec())
+            }
             RedisCommand::Info { section } => {
                             let mut sections = Vec::new();
 
