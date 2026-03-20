@@ -20,6 +20,10 @@ use crate::{
 impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
+            RedisCommand::Info { section } => {
+
+                 return Resp::BulkString("role:master".as_bytes().to_vec())
+            }
             RedisCommand::Multi => {
                 self.multi_list.insert(client_id, vec![]);
                 Resp::SimpleString("OK".as_bytes().to_vec())

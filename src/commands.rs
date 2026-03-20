@@ -72,11 +72,22 @@ pub enum RedisCommand {
     Multi,
     Error( String),
     Exec,
-    Discard
+    Discard,
+    Info {
+        section: Option<String>
+    }
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+            "info" => {
+                if args.len() >= 1 {
+                    Ok(RedisCommand::Info { section: Some(args[0].to_string()) })
+                }
+                else {
+                    Ok(RedisCommand::Info { section: None })
+                }
+            },
                         "exec" => Ok(RedisCommand::Exec),
                         "discard" => Ok(RedisCommand::Discard),
 
