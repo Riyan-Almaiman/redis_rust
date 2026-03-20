@@ -46,9 +46,14 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let ip_address = "127.0.0.1".to_string();
     let mut port = "6379".to_string();
+    let mut master = None;
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
             port = args[i + 1].clone();
+            break;
+        }
+          if args[i] == "--replicaof" && i + 1 < args.len() {
+            master = Some(args[i + 1].clone());
             break;
         }
     }
@@ -57,7 +62,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    let mut db = DB::new();
+    let mut db = DB::new(master);
 
     let db_tx = db.sender.clone();
 

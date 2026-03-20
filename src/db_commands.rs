@@ -21,7 +21,10 @@ impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
             RedisCommand::Info { section } => {
+                  if self.master.is_some() {
+                    return Resp::BulkString("role:slave".as_bytes().to_vec())
 
+                  }
                  return Resp::BulkString("role:master".as_bytes().to_vec())
             }
             RedisCommand::Multi => {

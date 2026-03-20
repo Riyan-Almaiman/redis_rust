@@ -18,6 +18,7 @@ pub struct DB {
     pub blocked_list: BlockingList,
     pub blocking_streams: BlockingStreams,
     pub sender: mpsc::Sender<Client>,
+    pub master: Option<String>
 }
 #[derive(Debug)]
 pub struct Client {
@@ -37,13 +38,14 @@ impl KeyValue {
     }
 }
 impl DB {
-    pub fn new() -> Self {
+    pub fn new(master: Option<String>) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
         Self {
             database: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
+            master: master,
             multi_list: HashMap::new(),
             blocked_list: BlockingList {
                 blocked_list: Default::default(),
