@@ -23,7 +23,8 @@ pub enum Role {
     },
     Slave {
         master: String,
-        
+                replication_id: String,
+        replication_offset: u64,
     },
 }
 impl Role {
@@ -33,7 +34,7 @@ impl Role {
                 replication_id,
                 replication_offset,
             } => format!("{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n", self.get_role(), replication_id, replication_offset),
-            Role::Slave { master } => master.clone(),
+            Role::Slave { master, replication_id, replication_offset } => format!("{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n", self.get_role(), replication_id, replication_offset),
         }
     } pub fn get_role(&self) -> String {
         match self {
