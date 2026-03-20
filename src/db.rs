@@ -31,15 +31,15 @@ impl Role {
             Role::Master {
                 replication_id,
                 replication_offset,
-            } => format!("{}:{}", replication_id, replication_offset),
+            } => format!("master_replid:{}\r\nmaster_repl_offset:{}", replication_id, replication_offset),
             Role::Slave { master } => master.clone(),
         }
     } pub fn get_role(&self) -> String {
         match self {
             Role::Master {
                 ..
-            } => "master".to_string(),
-            Role::Slave { .. } => "slave".to_string()
+            } => "role:master".to_string(),
+            Role::Slave { .. } => "role:slave".to_string()
         }
     }
 }

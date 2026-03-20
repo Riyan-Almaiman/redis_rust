@@ -60,7 +60,7 @@ async fn main() {
         }
     }
     let role = if replica_master.is_empty() {
-        let mut id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
+        let  id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
 
            Role::Master { replication_id: id, replication_offset: 0 }
     }else{
