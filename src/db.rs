@@ -55,12 +55,51 @@ impl Role {
             ),
         }
     }
+        pub fn get_repl_id(&self) -> String {
+        match self {
+            Role::Master {
+                replication_id,
+                replication_offset,
+            } => 
+                replication_id.clone(),
+    
+            Role::Slave {
+                master,
+                replication_id,
+                port,
+                replication_offset,
+            } =>   {                replication_id.clone()
+}
+            
+            
+        }
+        }
+           pub fn get_repl_offset(&self) -> String {
+        match self {
+            Role::Master {
+                replication_id,
+                replication_offset,
+            } => {
+                replication_offset.to_string()
+        },
+            Role::Slave {
+                master,
+                replication_id,
+                port,
+                replication_offset,
+            } =>  {
+            
+                replication_offset.to_string()}
+            
+        }}
+    
     pub fn get_role(&self) -> String {
         match self {
             Role::Master { .. } => "role:master".to_string(),
             Role::Slave { .. } => "role:slave".to_string(),
         }
     }
+
 }
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
@@ -241,7 +280,18 @@ impl DB {
                                     .to_vec(),
                             ), Resp::BulkString("capa".as_bytes().to_vec()),  Resp::BulkString("psync2".as_bytes().to_vec())]));
                             protocol.write_format(&mut write);
-                            let bytes = stream.write_all(&write.as_slice()).await;
+                            let bytes: Result<(), std::io::Error> = stream.write_all(&write.as_slice()).await;
+                        }     if let Ok(r) = bytes {
+                            let n = stream.read(&mut buf).await.unwrap();
+                            write.clear();
+                            println!("Response: {:?}", &buf[..n]);
+                            let psync = Resp::Array(VecDeque::from([Resp::BulkString(
+                              "PSYNC" 
+                                    .as_bytes()
+                                    .to_vec(),
+                            ), Resp::BulkString("?".as_bytes().to_vec()),  Resp::BulkString("-1".as_bytes().to_vec())]));
+                            psync.write_format(&mut write);
+                            let bytes: Result<(), std::io::Error> = stream.write_all(&write.as_slice()).await;
                         }
                     }
                 } else {

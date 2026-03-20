@@ -76,12 +76,19 @@ pub enum RedisCommand {
     Info {
         section: Option<String>
     },
-    REPLCONF 
+    REPLCONF,
+    PSYNC {
+        replication_id:String,
+        replication_offset: String
+    }
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
     
         match command.to_lowercase().as_str() {
+            "psync" => {
+                Ok(RedisCommand::PSYNC { replication_id: "?".to_string(), replication_offset: "-1".to_string() })
+            }
             "replyconf" => {
 Ok(RedisCommand::REPLCONF)
             }

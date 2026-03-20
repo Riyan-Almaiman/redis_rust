@@ -27,6 +27,10 @@ pub enum Info {
 impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> Resp {
         let outcome = match command {
+            RedisCommand::PSYNC { replication_id, replication_offset }=> {
+                        return Resp::SimpleString(format!("{} {}", self.role.get_repl_id(), self.role.get_repl_offset()).into())
+
+            }
             RedisCommand::REPLCONF => {
                 return Resp::SimpleString(b"OK".to_vec())
             }
