@@ -46,7 +46,7 @@ impl DB {
                     }
                 };
                 
-                return Resp::BulkString(sections.join(":").into());
+                return Resp::BulkString(sections.join("\r\n").into());
             }
             RedisCommand::Multi => {
                 self.multi_list.insert(client_id, vec![]);

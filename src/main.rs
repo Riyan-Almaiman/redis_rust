@@ -64,7 +64,9 @@ async fn main() {
 
            Role::Master { replication_id: id, replication_offset: 0 }
     }else{
-        Role::Slave { master: replica_master }
+                let  id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
+
+        Role::Slave { master: replica_master, replication_id: id, replication_offset: 0  }
     };
     let listener = TcpListener::bind(format!("{}:{}", ip_address, port))
         .await

@@ -23,6 +23,8 @@ pub enum Role {
     },
     Slave {
         master: String,
+        replication_id: String,
+        replication_offset: u64,
     },
 }
 impl Role {
@@ -31,15 +33,24 @@ impl Role {
             Role::Master {
                 replication_id,
                 replication_offset,
-            } => format!("master_replid:{}\r\nmaster_repl_offset:{}", replication_id, replication_offset),
-            Role::Slave { master } => master.clone(),
+            } => format!(
+                "master_replid:{}\r\nmaster_repl_offset:{}\r\n",
+                replication_id, replication_offset
+            ),
+            Role::Slave {
+                master,
+                replication_id,
+                replication_offset,
+            } => format!(
+                "master_replid:{}\r\nmaster_repl_offset:{}\r\n",
+                replication_id, replication_offset
+            ),
         }
-    } pub fn get_role(&self) -> String {
+    }
+    pub fn get_role(&self) -> String {
         match self {
-            Role::Master {
-                ..
-            } => "role:master".to_string(),
-            Role::Slave { .. } => "role:slave".to_string()
+            Role::Master { .. } => "role:master".to_string(),
+            Role::Slave { .. } => "role:slave".to_string(),
         }
     }
 }
