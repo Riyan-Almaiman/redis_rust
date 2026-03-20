@@ -148,7 +148,10 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
         let mut commands = Vec::new();
         let mut resp_commands = Vec::new();
         while let Some(mut cmd_resp) = parser.parse() {
+            resp_commands.push(cmd_resp.clone());
+
             if let Resp::Array(ref mut arr) = cmd_resp {
+
                 let cmd_name = arr.pop_front();
                 if let Some(cmd) = cmd_name {
                     let cmd_name_bytes = Resp::get_bytes(&cmd).unwrap();
@@ -164,7 +167,6 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
-                    resp_commands.push(cmd_resp);
                     commands.push(command);
                 }
             }
