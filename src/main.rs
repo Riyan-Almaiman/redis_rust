@@ -50,11 +50,9 @@ async fn main() {
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
             port = args[i + 1].clone();
-            break;
         }
           if args[i] == "--replicaof" && i + 1 < args.len() {
             master = Some(args[i + 1].clone());
-            break;
         }
     }
 
