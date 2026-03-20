@@ -14,7 +14,7 @@ pub enum CommandResult {
         keys: Vec<Vec<u8>>,
         timeout: f64,
     },
-
+    RegisterSlave (Resp),
     BlockStream {
         client_id: Uuid,
         streams: Vec<StreamWait>,

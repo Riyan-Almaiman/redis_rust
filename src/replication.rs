@@ -148,7 +148,9 @@ pub async fn start_replication(
                 let client = Client {
                     client_id: Uuid::new_v4(),
                     command,
+                    resp_command: resp,
                     response_tx: tx,
+                    response_tx_slave: None,
                     timeout: None,
                 };
 

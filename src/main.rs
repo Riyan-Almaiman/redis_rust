@@ -45,6 +45,7 @@ use crate::parser::Parser;
 
 use crate::resp::Resp;
 use rand::distr::{Alphanumeric, SampleString};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 
@@ -124,11 +125,17 @@ async fn main() {
 }
 async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
-
+    let (mut reader, mut writer) = connection.into_split();
     let mut buffer = [0u8; 1024];
 
+    let (mut tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+    tokio::spawn(async move {
+        while let Some(data) = rx.recv().await {
+            let _ = writer.write_all(&data).await;
+        }
+    });
     loop {
-        let n = match connection.read(&mut buffer).await {
+        let n = match reader.read(&mut buffer).await {
             Ok(0) => return,
 
             Ok(n) => n,
@@ -139,7 +146,7 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
         parser.read_buffer.extend_from_slice(&buffer[..n]);
 
         let mut commands = Vec::new();
-
+        let mut resp_commands = Vec::new();
         while let Some(mut cmd_resp) = parser.parse() {
             if let Resp::Array(ref mut arr) = cmd_resp {
                 let cmd_name = arr.pop_front();
@@ -157,24 +164,27 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
+                    resp_commands.push(cmd);
                     commands.push(command);
                 }
             }
         }
 
-        execute_commands(&mut connection, connection_tx.clone(), uuid, commands).await;
+         execute_commands(&mut tx, connection_tx.clone(), uuid, commands, resp_commands).await
     }
 }
 
 async fn execute_commands(
-    stream: &mut TcpStream,
+    stream: &mut Sender<Vec<u8>>,
     tx: mpsc::Sender<Client>,
     id: Uuid,
     cmds: Vec<RedisCommand>,
-) {let mut send_rdb = false;
+    resp_commands: Vec<Resp>,
+){
+    let mut send_rdb = false;
     let mut bytes_batch = Vec::with_capacity(4096);
 
-    for parsed_command in cmds {
+    for (i, parsed_command) in cmds.iter().enumerate() {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
         if matches!(parsed_command, RedisCommand::PSYNC { .. }) {
             send_rdb = true;
@@ -183,7 +193,9 @@ async fn execute_commands(
             client_id: id,
             timeout: None,
             response_tx: resp_tx,
-            command: parsed_command,
+            response_tx_slave: Some(stream.clone()),
+            resp_command: resp_commands[i].clone(),
+            command: parsed_command.clone(),
         };
 
         if tx.send(client_req).await.is_err() {
@@ -196,7 +208,7 @@ async fn execute_commands(
     }
 
     if !bytes_batch.is_empty() {
-        let _ = stream.write_all(&bytes_batch).await;
+        let _ = stream.send(bytes_batch).await;
     }
     if send_rdb {
         let rdb_bytes = general_purpose::STANDARD
@@ -205,7 +217,9 @@ async fn execute_commands(
 
         let header = format!("${}\r\n", rdb_bytes.len());
 
-        stream.write_all(header.as_bytes()).await.unwrap();
-        stream.write_all(&rdb_bytes).await.unwrap();
+        stream.send(header.as_bytes().to_vec()).await.unwrap();
+        stream.send(rdb_bytes).await.unwrap();
+
     }
+
 }

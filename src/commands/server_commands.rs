@@ -36,7 +36,7 @@ impl ServerCommands {
     }
 
     pub fn psync(db: &DB) -> CommandResult {
-        CommandResult::Response(Resp::SimpleString(
+        CommandResult::RegisterSlave(Resp::SimpleString(
             format!(
                 "FULLRESYNC {} {}",
                 db.role.get_repl_id(),

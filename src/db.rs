@@ -103,12 +103,15 @@ pub struct DB {
     pub blocking_streams: BlockingStreams,
     pub sender: mpsc::Sender<Client>,
     pub role: Role,
+    pub slaves: Vec<tokio::sync::mpsc::Sender<Vec<u8>>>
 }
 #[derive(Debug)]
 pub struct Client {
     pub client_id: Uuid,
     pub timeout: Option<Duration>,
     pub response_tx: oneshot::Sender<Resp>,
+    pub response_tx_slave: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    pub resp_command: Resp,
     pub command: RedisCommand,
 }
 
@@ -130,6 +133,7 @@ impl DB {
             sender: pipeline_tx,
             receiver: pipeline_rx,
             role,
+            slaves: Vec::new(),
             multi_list: HashMap::new(),
             blocked_list: BlockingList {
                 blocked_list: Default::default(),
@@ -140,6 +144,14 @@ impl DB {
                 clients: HashMap::new(),
             },
         }
+    }fn is_write_command(cmd: &RedisCommand) -> bool {
+        matches!(cmd,
+        RedisCommand::Set { .. } |
+        RedisCommand::Incr { .. } |
+        RedisCommand::RPush { .. } |
+        RedisCommand::LPush { .. } |
+        RedisCommand::XAdd { .. }
+    )
     }
     pub fn create_blocking_stream_client(
         &mut self,
@@ -172,6 +184,8 @@ impl DB {
                         client_id,
                         timeout: None,
                         response_tx: oneshot::channel().0,
+                        response_tx_slave: None,
+                        resp_command: Resp::Error(b"ok".to_vec()),
                         command: RedisCommand::InternalTimeoutCleanup { client_id },
                     })
                     .await;
@@ -204,6 +218,9 @@ impl DB {
                         client_id: id,
                         timeout: None,
                         response_tx: oneshot::channel().0,
+                        response_tx_slave: None,
+                        resp_command: Resp::Error(b"ok".to_vec()),
+
                         command: RedisCommand::InternalTimeoutCleanup { client_id: id },
                     })
                     .await;
@@ -241,7 +258,7 @@ impl DB {
     }
 
     pub async fn start(&mut self) {
-        while let Some(request) = self.receiver.recv().await {
+        while let Some(mut request) = self.receiver.recv().await {
             let Client {
                 command,
                 response_tx,
@@ -278,12 +295,28 @@ impl DB {
                     }
                 }
 
-                continue; // VERY IMPORTANT
+                continue;
             }
-            let outcome = self.execute_commands(command, client_id);
+            let outcome = self.execute_commands(command.clone(), client_id);
+            if Self::is_write_command(&command){
+                let mut buf = Vec::new();
+                request.resp_command.write_format(&mut buf);
+
+                for slave in &self.slaves {
+                    let _ = slave.try_send(buf.clone());
+                }
+            }
             match outcome {
                 CommandResult::Response(resp) => {
                     let _ = response_tx.send(resp);
+                }
+                CommandResult::RegisterSlave(resp) => {
+                    if let Some(client) =  request.response_tx_slave {
+                        self.slaves.push(client)
+
+                    }
+                    let _ = response_tx.send(resp);
+
                 }
 
                 CommandResult::BlockList { keys, timeout } => {
