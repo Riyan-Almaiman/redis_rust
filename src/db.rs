@@ -239,7 +239,7 @@ impl DB {
                               "REPLCONF" 
                                     .as_bytes()
                                     .to_vec(),
-                            ), Resp::BulkString("psync2".as_bytes().to_vec())]));
+                            ), Resp::BulkString("capa".as_bytes().to_vec()),  Resp::BulkString("psync2".as_bytes().to_vec())]));
                             protocol.write_format(&mut write);
                             let bytes = stream.write_all(&write.as_slice()).await;
                         }
