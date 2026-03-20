@@ -20,10 +20,10 @@ mod stream;
 mod valuetype;
 mod xrange;
 
+use std::any::Any;
 use std::env;
 
-use rand::distr::Alphanumeric;
-use rand::{RngExt, TryRng, rng};
+use rand::{Rng, RngExt, TryRng, rng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpListener, TcpStream};
@@ -41,10 +41,12 @@ use crate::db::Client;
 use crate::parser::Parser;
 
 use crate::resp::Resp;
+use rand::distr::{Alphanumeric, SampleString};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 
 async fn main() {
+    let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let args: Vec<String> = env::args().collect();
     let ip_address = "127.0.0.1".to_string();
     let mut port = "6379".to_string();
@@ -58,10 +60,9 @@ async fn main() {
         }
     }
     let role = if replica_master.is_empty() {
-        let mut id = [0u8; 40];
-        rand::rng().try_fill_bytes(&mut id);
+        let mut id =  Alphanumeric.sample_string(&mut rand::rng(), 40);
 
-           Role::Master { replication_id: String::from_utf8(id.to_vec()).unwrap(), replication_offset: 0 }
+           Role::Master { replication_id: id, replication_offset: 0 }
     }else{
         Role::Slave { master: replica_master }
     };
