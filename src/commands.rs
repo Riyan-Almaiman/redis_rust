@@ -89,7 +89,7 @@ impl RedisCommand {
             "psync" => {
                 Ok(RedisCommand::PSYNC { replication_id: "?".to_string(), replication_offset: "-1".to_string() })
             }
-            "replyconf" => {
+            "replconf" => {
 Ok(RedisCommand::REPLCONF)
             }
             "info" => {
