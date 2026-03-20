@@ -15,6 +15,7 @@ use crate::{
 pub async fn start_replication(
     master_addr: String,
     db_tx: mpsc::Sender<Client>,
+    port: String
 ) {
     println!("Connecting to master at {}", master_addr);
 
@@ -57,7 +58,7 @@ pub async fn start_replication(
             [
                 Resp::BulkString(b"REPLCONF".to_vec()),
                 Resp::BulkString(b"listening-port".to_vec()),
-                Resp::BulkString(b"0".to_vec()),
+                Resp::BulkString(port.as_bytes().to_vec()),
             ]
                 .into(),
         ),

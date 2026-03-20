@@ -108,7 +108,7 @@ async fn main() {
         let tx = db_tx.clone();
 
         tokio::spawn(async move {
-            replication::start_replication(master, tx).await;
+            replication::start_replication(master, tx, server_port.clone()).await;
         });
     }
 
