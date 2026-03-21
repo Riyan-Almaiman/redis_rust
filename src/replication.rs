@@ -132,6 +132,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         .filter_map(|b| std::str::from_utf8(b).ok())
                         .map(|s| s.to_string())
                         .collect();
+                    println!("FROM MASTER: {} {:?}", cmd_name, args);
 
                     if cmd_name == "replconf" {
                         if args.len() >= 2 && args[0] == "getack" && args[1] == "*" {
