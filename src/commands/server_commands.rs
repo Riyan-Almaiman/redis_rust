@@ -93,8 +93,8 @@ impl ServerCommands {
         CommandResult::Response(Resp::SimpleString(type_str.to_vec()))
     }
     pub fn wait(db: &mut DB, timeout: u64, replicas: u64) -> CommandResult {
-
-            return CommandResult::Response(Resp::Integer(0));
+            let connected_slaves = db.cleanup_dead_slaves();
+            return CommandResult::Response(Resp::Integer(connected_slaves as usize));
     }
     pub fn cleanup_timeout(db: &mut DB, target_id: uuid::Uuid) -> CommandResult {
         if let Some(blocked_client) = db.blocking.lists.blocked_list.remove(&target_id) {

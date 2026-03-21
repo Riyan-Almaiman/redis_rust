@@ -89,6 +89,10 @@ impl DB {
         });
         self.slaves.len() as u64
     }
+   pub fn cleanup_dead_slaves(&mut self) -> u64 {
+        self.slaves.retain(|slave| !slave.is_closed());
+        self.slaves.len() as u64
+    }
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
             // for slave in &self.slaves {
