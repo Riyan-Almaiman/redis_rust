@@ -10,6 +10,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::format;
 use std::time::{Duration, SystemTime};
+use base64::Engine;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
@@ -157,14 +158,21 @@ impl DB {
                 CommandResult::RegisterSlave(resp) => {
                     match self.role {
                         Role::Master {..} => {
-                            send_cmd(response_tx.clone(), resp);
+                            send_cmd(response_tx.clone(), resp);  
+
+                            let rdb_bytes = base64::engine::general_purpose::STANDARD
+                                .decode("UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==")
+                                .unwrap();
+                            let header = format!("${}\r\n", rdb_bytes.len());
+                            let _ = response_tx.send(header.into_bytes());
+                            let _ = response_tx.send(rdb_bytes);
+
                             self.slaves.push(response_tx);
-                        } Role::Slave { .. } => {
+                        }
+                        Role::Slave { .. } => {
                             send_cmd(response_tx.clone(), resp);
-
-                        },
+                        }
                     }
-
                 }
 
                 CommandResult::BlockList { keys, timeout } => {
