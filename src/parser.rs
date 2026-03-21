@@ -48,32 +48,71 @@ impl Parser {
             current_command: CommandArray::new(),
         }
     }
-
+    fn reset(&mut self) {
+        self.read_buffer.drain(..self.current_index);
+        self.current_index = 0;
+        self.current_command = CommandArray::new();
+    }
     pub fn parse(&mut self) -> Option<Resp> {
         while self.current_index < self.read_buffer.len() {
             match self.current_command.current_state {
-                CurrentState::None => {
-                    let byte = self.read_buffer[self.current_index];
+                    CurrentState::None => {
+                        let byte = self.read_buffer[self.current_index];
 
-                    if byte == b'*' {
-                        self.current_command.current_state = ReadingArrayElementCount;
-                        self.current_index += 1;
-                    } else {
-                        return if let Some(line) = self.read_until_clrf() {
-                            self.read_buffer.drain(..self.current_index);
-                            self.current_index = 0;
+                        match byte {
+                            b'*' => {
+                                self.current_command.current_state = ReadingArrayElementCount;
+                                self.current_index += 1;
+                            }
 
-                            let parts: VecDeque<Resp> = line
-                                .split(|b| *b == b' ')
-                                .map(|s| Resp::BulkString(s.to_vec()))
-                                .collect();
+                            b'+' => {
+                                self.current_index += 1;
+                                if let Some(s) = self.read_until_clrf() {
+                                    self.reset();
+                                    return Some(Resp::SimpleString(s));
+                                } else {
+                                    return None;
+                                }
+                            }
 
-                            Some(Resp::Array(parts))
-                        } else {
-                            None
-                        };
+                            b'$' => {
+                                self.current_index += 1;
+
+                                let len_bytes = self.read_until_clrf()?;
+                                let len = Self::vec_to_i64(&len_bytes)? as usize;
+
+                                if self.read_buffer.len() < self.current_index + len + 2 {
+                                    return None;
+                                }
+
+                                let data = self.read_buffer[self.current_index..self.current_index + len].to_vec();
+                                self.current_index += len + 2;
+
+                                self.reset();
+                                return Some(Resp::BulkString(data));
+                            }
+
+                            b':' => {
+                                self.current_index += 1;
+                                let num = self.read_until_clrf()?;
+                                let val = Self::vec_to_i64(&num)? as usize;
+
+                                self.reset();
+                                return Some(Resp::Integer(val));
+                            }
+
+                            b'-' => {
+                                self.current_index += 1;
+                                let err = self.read_until_clrf()?;
+
+                                self.reset();
+                                return Some(Resp::Error(err));
+                            }
+
+                            _ => return None,
+                        }
                     }
-                }
+                
 
                 _ => {
                     self.current_command.current_state = self.parse_command_array();
