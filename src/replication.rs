@@ -23,12 +23,23 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         resp.write_format(&mut buf);
         writer.write_all(&buf).await.unwrap();
     }
+    async fn read_one(reader: &mut tokio::net::tcp::OwnedReadHalf, parser: &mut Parser) {
+        let mut buffer = [0u8; 1024];
 
+        let n = reader.read(&mut buffer).await.unwrap();
+        if n == 0 {
+            panic!("Master closed connection during handshake");
+        }
+
+        parser.read_buffer.extend_from_slice(&buffer[..n]);
+        let _ = parser.parse();
+    }
     send(
         &mut writer,
         Resp::Array([Resp::BulkString(b"PING".to_vec())].into()),
     )
     .await;
+    read_one(&mut reader, &mut parser).await;
 
     send(
         &mut writer,
@@ -42,6 +53,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         ),
     )
     .await;
+    read_one(&mut reader, &mut parser).await;
 
     send(
         &mut writer,
@@ -55,6 +67,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         ),
     )
     .await;
+    read_one(&mut reader, &mut parser).await;
 
     send(
         &mut writer,
