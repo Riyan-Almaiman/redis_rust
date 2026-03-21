@@ -113,37 +113,51 @@ pub async fn start_replication(
         parser.read_buffer.extend_from_slice(&buffer[..n]);
 
         while let Some(mut resp) = parser.parse() {
-            if let Resp::Array(ref mut arr) = resp {
-                if arr.is_empty() {
-                    continue;
-                }
-                println!("{:?}", arr);
-                let cmd_name = arr.pop_front().unwrap();
-                let cmd_name_bytes = match Resp::get_bytes(&cmd_name) {
-                    Some(b) => b,
-                    None => continue,
-                };
-
-                let cmd_name = match std::str::from_utf8(cmd_name_bytes) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-
-                let args: Vec<&str> = arr
-                    .iter()
-                    .filter_map(|a| Resp::get_bytes(a))
-                    .filter_map(|b| std::str::from_utf8(b).ok())
-                    .collect();
-                
-                let command = match RedisCommand::from_parts(cmd_name, &args) {
-                    Ok(cmd) => cmd,
-                    Err(e) => {
-                        println!("Failed to parse command from master: {}", e);
+            match resp {
+                Resp::SimpleString(s) => {
+                    if s.starts_with(b"FULLRESYNC") {
+                        println!("FULLRESYNC received");
                         continue;
                     }
-                };
+                }
 
-                let (tx, _rx) = oneshot::channel();
+                Resp::BulkString(data) => {
+                    println!("RDB received ({} bytes)", data.len());
+                    continue;
+                }
+
+                Resp::Array(ref mut arr) => {
+                    if arr.is_empty() {
+                        continue;
+                    }
+
+                    let cmd_name = arr.pop_front().unwrap();
+                    let cmd_name_bytes = match Resp::get_bytes(&cmd_name) {
+                        Some(b) => b,
+                        None => continue,
+                    };
+
+                    let cmd_name = match std::str::from_utf8(cmd_name_bytes) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    let args: Vec<&str> = arr
+                        .iter()
+                        .filter_map(|a| Resp::get_bytes(a))
+                        .filter_map(|b| std::str::from_utf8(b).ok())
+                        .collect();
+
+                    let command = match RedisCommand::from_parts(cmd_name, &args) {
+                        Ok(cmd) => cmd,
+                        Err(e) => {
+                            println!("Failed to parse command from master: {}", e);
+                            continue;
+                        }
+                    };
+
+
+                    let (tx, _rx) = oneshot::channel();
 
                 let client = Client {
                     client_id: Uuid::new_v4(),
@@ -159,6 +173,7 @@ pub async fn start_replication(
                     return;
                 }
             }
-        }
+                _ => {}}
+            }
     }
 }
