@@ -178,7 +178,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         return;
                     }
 
-                   // offset += cmd_bytes;
+                    offset += cmd_bytes;
                 }
 
                 _ => {}
