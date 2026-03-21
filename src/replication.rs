@@ -147,7 +147,9 @@ pub async fn start_replication(
                         .filter_map(|a| Resp::get_bytes(a))
                         .filter_map(|b| std::str::from_utf8(b).ok())
                         .collect();
-
+                    for arg in &args {
+                        println!("ARG: {} {}", arg, cmd_name);
+                    }
                     let command = match RedisCommand::from_parts(cmd_name, &args) {
                         Ok(cmd) => cmd,
                         Err(e) => {

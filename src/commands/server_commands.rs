@@ -34,8 +34,11 @@ impl ServerCommands {
     }
 
     pub fn replconf(args: Vec<String>) -> CommandResult {
-        if args.len() >= 1 {
-            if args[0].to_lowercase() == "getack" {
+        if args.len() >= 2 {
+            for arg in &args {
+                println!("{}", &arg);
+            }
+            if args[0].to_lowercase() == "getack" && args[1] == "*" {
                 return CommandResult::Response(Resp::Array(VecDeque::from(vec![
                     BulkString("REPLCONF".as_bytes().to_vec()),
                     BulkString("ACK".as_bytes().to_vec()),
