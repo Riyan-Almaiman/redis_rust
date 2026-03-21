@@ -195,7 +195,7 @@ impl Parser {
             || self.read_buffer[self.current_index + number as usize + 1] != b'\n'
         {
             return InvalidCommand;
-        }
+        }//
         let mut count = 0;
         while self.current_index + count < self.read_buffer.len() {
             string.push(self.read_buffer[self.current_index + count]);
