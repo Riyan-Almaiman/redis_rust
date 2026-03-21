@@ -21,6 +21,7 @@ mod valuetype;
 mod replication;
 mod blocking_manger;
 mod role;
+mod send;
 
 use core::panic;
 use std::any::Any;
@@ -169,7 +170,6 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
-                    let is_psync = matches!(command, RedisCommand::PSYNC { .. });
                     commands.push(command);
                 }
             }
@@ -187,10 +187,10 @@ async fn execute_commands(
     resp_commands: Vec<Resp>,
 ){
     let mut send_rdb = false;
-    let mut bytes_batch = Vec::with_capacity(4096);
+    let mut bytes_batch = Vec::with_capacity(20);
 
     for (i, parsed_command) in cmds.iter().enumerate() {
-        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         if matches!(parsed_command, RedisCommand::PSYNC { .. }) {
             send_rdb = true;
         }
@@ -206,8 +206,8 @@ async fn execute_commands(
             return;
         }
 
-        if let Ok(response) = resp_rx.await {
-            response.write_format(&mut bytes_batch);
+        if let Some(mut response) = resp_rx.recv().await {
+            bytes_batch.append( &mut response);
         }
     }
 

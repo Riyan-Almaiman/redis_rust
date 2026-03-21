@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 use crate::blocking_list::{BlockingClient, BlockingList};
 use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::commands_parser::RedisCommand;
 use crate::db::{Client, DB};
 use crate::resp::Resp;
+use crate::send::send_cmd;
 use crate::valuetype::ValueType;
 
 pub struct BlockingManager {
@@ -19,7 +21,7 @@ impl DB {
         &mut self,
         client_id: Uuid,
         resolved_streams: Vec<StreamWait>,
-        response_tx: oneshot::Sender<Resp>,
+        response_tx: UnboundedSender<Vec<u8>>,
         timeout_ms: f64,
     ) {
         let client = BlockingStreamClient {
@@ -40,12 +42,13 @@ impl DB {
         if timeout_ms > 0.0 {
             let sender_clone = self.sender.clone();
             tokio::spawn(async move {
+                let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
                 let _ = sender_clone
                     .send(Client {
                         client_id,
                         timeout: None,
-                        response_tx: oneshot::channel().0,
+                        response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),
                         command: RedisCommand::InternalTimeoutCleanup { client_id },
                     })
@@ -58,7 +61,7 @@ impl DB {
         &mut self,
         client_id: Uuid,
         keys: Vec<Vec<u8>>,
-        response_tx: oneshot::Sender<Resp>,
+        response_tx: UnboundedSender<Vec<u8>>,
         timeout: f64,
     ) {
         let client = BlockingClient {
@@ -73,12 +76,12 @@ impl DB {
 
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
-
+                let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 let _ = sender_clone
                     .send(Client {
                         client_id: id,
                         timeout: None,
-                        response_tx: oneshot::channel().0,
+                        response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),
 
                         command: RedisCommand::InternalTimeoutCleanup { client_id: id },
@@ -112,8 +115,7 @@ impl DB {
                     }
                 }
             }
-
-            let _ = client.response_tx.send(Resp::Array(result));
+            send_cmd(client.response_tx, Resp::Array(result));
         }
     }
 }

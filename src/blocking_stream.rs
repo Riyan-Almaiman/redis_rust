@@ -1,6 +1,7 @@
 use crate::blocking_list::BlockingClient;
 use crate::resp::Resp;
 use std::collections::{HashMap, VecDeque};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -19,6 +20,6 @@ pub struct StreamWait {
 
 pub struct BlockingStreamClient {
     pub id: Uuid,
-    pub response_tx: oneshot::Sender<Resp>,
+    pub response_tx: UnboundedSender<Vec<u8>>,
     pub waits: Vec<StreamWait>,
 }

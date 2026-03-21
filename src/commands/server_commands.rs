@@ -4,6 +4,7 @@ use crate::resp::Resp;
 use crate::resp::Resp::BulkString;
 use crate::valuetype::ValueType;
 use std::collections::VecDeque;
+use crate::send::send_cmd;
 
 pub struct ServerCommands;
 
@@ -35,7 +36,7 @@ impl ServerCommands {
 
     pub fn replconf(args: Vec<String>) -> CommandResult {
         if args.len() >= 2 {
-    
+
             if args[0].to_lowercase() == "getack" && args[1] == "*" {
                 return CommandResult::Response(Resp::Array(VecDeque::from(vec![
                     BulkString("REPLCONF".as_bytes().to_vec()),
@@ -97,14 +98,14 @@ impl ServerCommands {
             for queue in db.blocking.lists.waiters.values_mut() {
                 queue.retain(|id| *id != target_id);
             }
-            let _ = blocked_client.response_tx.send(Resp::NullArray);
+            send_cmd(blocked_client.response_tx, Resp::NullArray);
         }
 
         if let Some(stream_client) = db.blocking.streams.clients.remove(&target_id) {
             for queue in db.blocking.streams.waiters.values_mut() {
                 queue.retain(|id| *id != target_id);
             }
-            let _ = stream_client.response_tx.send(Resp::NullArray);
+            send_cmd(stream_client.response_tx, Resp::NullArray);
         }
 
         CommandResult::None

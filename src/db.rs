@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 use crate::blocking_manger::BlockingManager;
 use crate::role::Role;
+use crate::send::send_cmd;
 
 pub struct Master {
     pub replication_id: String,
@@ -29,13 +30,13 @@ pub struct DB {
     pub blocking: BlockingManager,
     pub sender: mpsc::Sender<Client>,
     pub role: Role,
-    pub slaves: Vec<tokio::sync::mpsc::Sender<Vec<u8>>>
+    pub slaves: Vec<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>
 }
 #[derive(Debug)]
 pub struct Client {
     pub client_id: Uuid,
     pub timeout: Option<Duration>,
-    pub response_tx: oneshot::Sender<Resp>,
+    pub response_tx: mpsc::UnboundedSender<Vec<u8>>,
     pub resp_command: Resp,
     pub command: RedisCommand,
 }
@@ -68,7 +69,8 @@ impl DB {
                 streams: Default::default(),
             }
         }
-    }fn is_write_command(cmd: &RedisCommand) -> bool {
+    }
+    fn is_write_command(cmd: &RedisCommand) -> bool {
         matches!(cmd,
         RedisCommand::Set { .. } |
         RedisCommand::Incr { .. } |
@@ -76,17 +78,28 @@ impl DB {
         RedisCommand::LPush { .. } |
         RedisCommand::XAdd { .. }
     )
+
+
     }
 
-
+    fn send_slaves(&self, resp: &Vec<u8>) {
+                for slave in &self.slaves{
+            let _ = slave.send(resp.clone());
+        }
+    }
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
+
+
             let Client {
                 command,
                 response_tx,
                 client_id,
                 ..
             } = request;
+            let mut cmd_buffer = Vec::new();
+            request.resp_command.write_format(&mut cmd_buffer);
+
 
             if let Some(client) = self.multi_list.get_mut(&client_id) {
                 match command {
@@ -102,39 +115,34 @@ impl DB {
                                 responses.push_back(r);
                             }
                         }
-
-                        let _ = response_tx.send(Resp::Array(responses));
+                        send_cmd(response_tx, Resp::Array(responses));
                     }
 
                     RedisCommand::Discard => {
                         self.multi_list.remove(&client_id);
-                        let _ = response_tx.send(Resp::SimpleString(b"OK".to_vec()));
+                        send_cmd(response_tx, Resp::SimpleString(b"OK".to_vec()));
                     }
 
                     _ => {
                         client.push(command);
-                        let _ = response_tx.send(Resp::SimpleString(b"QUEUED".to_vec()));
+                        send_cmd(response_tx, Resp::SimpleString(b"QUEUED".to_vec()));
+
                     }
                 }
 
                 continue;
             }
+
             let outcome = self.execute_commands(command.clone(), client_id);
             if Self::is_write_command(&command){
-                let mut buf = Vec::new();
-                request.resp_command.write_format(&mut buf);
-
-                for slave in &self.slaves {
-                    let _ = slave.try_send(buf.clone());
-                }
+                    self.send_slaves(&cmd_buffer)
             }
             match outcome {
                 CommandResult::Response(resp) => {
-                    let _ = response_tx.send(resp);
+                    send_cmd(response_tx, resp);
                 }
                 CommandResult::RegisterSlave(resp) => {
-                    let _ = response_tx.send(resp);
-
+                        self.slaves.push(response_tx);
                 }
 
                 CommandResult::BlockList { keys, timeout } => {
@@ -156,7 +164,7 @@ impl DB {
                             responses.push_back(r);
                         }
                     }
-                    let _ = response_tx.send(Resp::Array(responses));
+                    send_cmd(response_tx, Resp::Array(responses));
                 }
 
                 CommandResult::None => {}

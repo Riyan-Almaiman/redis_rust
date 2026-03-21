@@ -108,6 +108,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     }
                 }
 
+
                 Resp::BulkString(data) => {
                     println!("RDB received ({} bytes)", data.len());
                     continue;
@@ -135,7 +136,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     println!("FROM MASTER: {} {:?}", cmd_name, args);
 
                     if cmd_name == "replconf" {
-                        if args.len() >= 2 && args[0] == "getack" && args[1] == "*" {
+                        if args.len() >= 2 && args[0] .to_lowercase()== "getack" && args[1] == "*" {
                             let response = Resp::Array(
                                 vec![
                                     Resp::BulkString(b"REPLCONF".to_vec()),
@@ -164,8 +165,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         }
                     };
 
-                    let (tx, _rx) = oneshot::channel();
-
+                    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
                     let client = Client {
                         client_id: Uuid::new_v4(),
                         command,

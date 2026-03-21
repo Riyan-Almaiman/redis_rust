@@ -1,7 +1,9 @@
 use crate::resp::Resp;
 use std::collections::{HashMap, HashSet, VecDeque};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use uuid::Uuid;
+use crate::send::send_cmd;
 
 #[derive(Default)]
 pub struct BlockingList {
@@ -11,7 +13,7 @@ pub struct BlockingList {
 
 pub struct BlockingClient {
     pub id: Uuid,
-    pub response_tx: oneshot::Sender<Resp>,
+    pub response_tx: UnboundedSender<Vec<u8>>,
 }
 impl BlockingList {
     pub fn register(&mut self, key: Vec<Vec<u8>>, client: BlockingClient) {
@@ -41,7 +43,7 @@ impl BlockingList {
                 q.retain(|id| *id != client_id);
             }
 
-            let _ = client.response_tx.send(Resp::Array(VecDeque::from(vec![
+            send_cmd(client.response_tx, Resp::Array(VecDeque::from(vec![
                 Resp::BulkString(key.to_vec()),
                 Resp::BulkString(value),
             ])));
