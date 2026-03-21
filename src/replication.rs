@@ -1,7 +1,7 @@
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    sync::{mpsc, oneshot},
+    sync::mpsc,
 };
 use uuid::Uuid;
 
@@ -41,8 +41,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
     .await;
     read_one(&mut reader, &mut parser).await;
 
-    send(        &mut writer,
-
+    send(
+        &mut writer,
         Resp::Array(
             [
                 Resp::BulkString(b"REPLCONF".to_vec()),
@@ -84,9 +84,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
 
     let mut buffer = [0u8; 4096];
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
-
+    let mut offset: usize = 0;
     loop {
-
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
                 println!("Master disconnected");
@@ -100,7 +99,11 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         };
         parser.read_buffer.extend_from_slice(&buffer[..n]);
         while let Some(mut resp) = parser.parse() {
-
+            let cmd_bytes = {
+                let mut buf = Vec::new();
+                resp.write_format(&mut buf);
+                buf.len()
+            };
             match resp {
                 Resp::SimpleString(s) => {
                     if s.starts_with(b"FULLRESYNC") {
@@ -108,7 +111,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         continue;
                     }
                 }
-
 
                 Resp::BulkString(data) => {
                     continue;
@@ -136,21 +138,18 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     println!("FROM MASTER: {} {:?}", cmd_name, args);
 
                     if cmd_name == "replconf" {
-                        println!("REPLCONF received");
-                        if args.len() >= 2 && args[0] .to_lowercase()== "getack" && args[1] == "*" {
-                            let response = Resp::Array(
-                                vec![
-                                    Resp::BulkString(b"REPLCONF".to_vec()),
-                                    Resp::BulkString(b"ACK".to_vec()),
-                                    Resp::BulkString(b"0".to_vec()),
-                                ]
-                                .into(),
-                            );
+                        if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
+                            let response = Resp::Array(vec![
+                                Resp::BulkString(b"REPLCONF".to_vec()),
+                                Resp::BulkString(b"ACK".to_vec()),
+                                Resp::BulkString(offset.to_string().into_bytes()),
+                            ].into());
 
                             let mut buf = Vec::new();
                             response.write_format(&mut buf);
-
                             writer.write_all(&buf).await.unwrap();
+
+                            offset += cmd_bytes;
                             continue;
                         }
                     }
@@ -178,6 +177,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         println!("DB channel closed");
                         return;
                     }
+
+                    offset += cmd_bytes;
                 }
 
                 _ => {}
