@@ -147,8 +147,21 @@ pub async fn start_replication(
                         .filter_map(|a| Resp::get_bytes(a))
                         .filter_map(|b| std::str::from_utf8(b).ok())
                         .collect();
-                    for arg in &args {
-                        println!("ARG: {} {}", arg, cmd_name);
+                    if cmd_name.to_lowercase() == "replconf" {
+                        if args.len() >= 2 && args[0].to_lowercase() == "getack" {
+                            let response = Resp::Array(vec![
+                                Resp::BulkString(b"REPLCONF".to_vec()),
+                                Resp::BulkString(b"ACK".to_vec()),
+                                Resp::BulkString(b"0".to_vec()),
+                            ].into());
+
+                            let mut buf = Vec::new();
+                            response.write_format(&mut buf);
+
+                            stream.write_all(&buf).await.unwrap();
+
+                            continue;
+                        }
                     }
                     let command = match RedisCommand::from_parts(cmd_name, &args) {
                         Ok(cmd) => cmd,
@@ -159,17 +172,16 @@ pub async fn start_replication(
                     };
 
 
-                    let (tx, _rx) = oneshot::channel();
 
-                let client = Client {
-                    client_id: Uuid::new_v4(),
-                    command,
-                    resp_command: resp,
-                    response_tx: tx,
-                    response_tx_slave: None,
-                    timeout: None,
-                };
+                    let (tx, _rx) = oneshot::channel(); // just dummy, ignore response
 
+                    let client = Client {
+                        client_id: Uuid::new_v4(),
+                        command,
+                        resp_command: resp,
+                        response_tx: tx,
+                        timeout: None,
+                    };
                 if db_tx.send(client).await.is_err() {
                     println!("DB channel closed");
                     return;

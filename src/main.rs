@@ -169,6 +169,7 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
                         .collect();
 
                     let command = RedisCommand::from_parts(cmd_name, &args).unwrap_or_else(|e| RedisCommand::Error(e));
+                    let is_psync = matches!(command, RedisCommand::PSYNC { .. });
                     commands.push(command);
                 }
             }
@@ -197,7 +198,6 @@ async fn execute_commands(
             client_id: id,
             timeout: None,
             response_tx: resp_tx,
-            response_tx_slave: Some(stream.clone()),
             resp_command: resp_commands[i].clone(),
             command: parsed_command.clone(),
         };

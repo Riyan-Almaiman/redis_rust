@@ -36,7 +36,6 @@ pub struct Client {
     pub client_id: Uuid,
     pub timeout: Option<Duration>,
     pub response_tx: oneshot::Sender<Resp>,
-    pub response_tx_slave: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     pub resp_command: Resp,
     pub command: RedisCommand,
 }
@@ -134,10 +133,6 @@ impl DB {
                     let _ = response_tx.send(resp);
                 }
                 CommandResult::RegisterSlave(resp) => {
-                    if let Some(client) =  request.response_tx_slave {
-                        self.slaves.push(client)
-
-                    }
                     let _ = response_tx.send(resp);
 
                 }

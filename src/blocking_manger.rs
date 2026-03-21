@@ -46,7 +46,6 @@ impl DB {
                         client_id,
                         timeout: None,
                         response_tx: oneshot::channel().0,
-                        response_tx_slave: None,
                         resp_command: Resp::Error(b"ok".to_vec()),
                         command: RedisCommand::InternalTimeoutCleanup { client_id },
                     })
@@ -80,7 +79,6 @@ impl DB {
                         client_id: id,
                         timeout: None,
                         response_tx: oneshot::channel().0,
-                        response_tx_slave: None,
                         resp_command: Resp::Error(b"ok".to_vec()),
 
                         command: RedisCommand::InternalTimeoutCleanup { client_id: id },
