@@ -41,8 +41,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
     .await;
     read_one(&mut reader, &mut parser).await;
 
-    send(
-        &mut writer,
+    send(        &mut writer,
+
         Resp::Array(
             [
                 Resp::BulkString(b"REPLCONF".to_vec()),
@@ -83,8 +83,10 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
     .await;
 
     let mut buffer = [0u8; 4096];
+    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
     loop {
+
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
                 println!("Master disconnected");
@@ -96,10 +98,9 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                 return;
             }
         };
-
         parser.read_buffer.extend_from_slice(&buffer[..n]);
-
         while let Some(mut resp) = parser.parse() {
+
             match resp {
                 Resp::SimpleString(s) => {
                     if s.starts_with(b"FULLRESYNC") {
@@ -110,7 +111,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
 
 
                 Resp::BulkString(data) => {
-                    println!("RDB received ({} bytes)", data.len());
                     continue;
                 }
 
@@ -136,6 +136,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     println!("FROM MASTER: {} {:?}", cmd_name, args);
 
                     if cmd_name == "replconf" {
+                        println!("REPLCONF received");
                         if args.len() >= 2 && args[0] .to_lowercase()== "getack" && args[1] == "*" {
                             let response = Resp::Array(
                                 vec![
@@ -165,12 +166,11 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         }
                     };
 
-                    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
                     let client = Client {
                         client_id: Uuid::new_v4(),
                         command,
                         resp_command: resp,
-                        response_tx: tx,
+                        response_tx: tx.clone(),
                         timeout: None,
                     };
 

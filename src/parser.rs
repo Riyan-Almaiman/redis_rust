@@ -76,18 +76,25 @@ impl Parser {
                             }
 
                             b'$' => {
+                                let saved = self.current_index;
                                 self.current_index += 1;
 
-                                let len_bytes = self.read_until_clrf()?;
-                                let len = Self::vec_to_i64(&len_bytes)? as usize;
+                                let len_bytes = match self.read_until_clrf() {
+                                    Some(b) => b,
+                                    None => { self.current_index = saved; return None; }
+                                };
+                                let len = match Self::vec_to_i64(&len_bytes) {
+                                    Some(n) => n as usize,
+                                    None => { self.current_index = saved; return None; }
+                                };
 
-                                if self.read_buffer.len() < self.current_index + len + 2 {
+                                if self.read_buffer.len() < self.current_index + len {
+                                    self.current_index = saved;
                                     return None;
                                 }
 
                                 let data = self.read_buffer[self.current_index..self.current_index + len].to_vec();
-                                self.current_index += len + 2;
-
+                                self.current_index += len;
                                 self.reset();
                                 return Some(Resp::BulkString(data));
                             }
@@ -112,7 +119,7 @@ impl Parser {
                             _ => return None,
                         }
                     }
-                
+
 
                 _ => {
                     self.current_command.current_state = self.parse_command_array();

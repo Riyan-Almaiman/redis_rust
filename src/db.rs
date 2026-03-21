@@ -89,17 +89,30 @@ impl DB {
     }
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
-
-
+            // for slave in &self.slaves {
+            //     let mut buf = Vec::new();
+            //     println!("{}", self.slaves.len());
+            //     Resp::Array(vec![
+            //         Resp::BulkString(b"REPLCONF".to_vec()),
+            //         Resp::BulkString(b"GETACK".to_vec()),
+            //         Resp::BulkString(b"*".to_vec()),
+            //     ].into()).write_format(&mut buf);
+            //
+            //     let r = slave.send(buf);
+            //     match r {
+            //         Ok(_) => {},
+            //         Err(e) => {println!("{}", e); },
+            //     }
+            // }
             let Client {
                 command,
                 response_tx,
                 client_id,
+                resp_command,
                 ..
             } = request;
             let mut cmd_buffer = Vec::new();
-            request.resp_command.write_format(&mut cmd_buffer);
-
+            resp_command.write_format(&mut cmd_buffer);
 
             if let Some(client) = self.multi_list.get_mut(&client_id) {
                 match command {
@@ -142,7 +155,16 @@ impl DB {
                     send_cmd(response_tx, resp);
                 }
                 CommandResult::RegisterSlave(resp) => {
-                        self.slaves.push(response_tx);
+                    match self.role {
+                        Role::Master {..} => {
+                            send_cmd(response_tx.clone(), resp);
+                            self.slaves.push(response_tx);
+                        } Role::Slave { .. } => {
+                            send_cmd(response_tx.clone(), resp);
+
+                        },
+                    }
+
                 }
 
                 CommandResult::BlockList { keys, timeout } => {

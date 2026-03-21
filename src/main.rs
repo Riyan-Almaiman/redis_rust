@@ -47,7 +47,7 @@ use crate::parser::Parser;
 
 use crate::resp::Resp;
 use rand::distr::{Alphanumeric, SampleString};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 use crate::role::Role;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
@@ -131,9 +131,9 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
     let (mut reader, mut writer) = connection.into_split();
     let mut buffer = [0u8; 1024];
 
-    let (mut tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+    let (mut conn_tx, mut conn_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
-        while let Some(data) = rx.recv().await {
+        while let Some(data) = conn_rx.recv().await {
             let _ = writer.write_all(&data).await;
         }
     });
@@ -175,29 +175,28 @@ async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Cl
             }
         }
 
-         execute_commands(&mut tx, connection_tx.clone(), uuid, commands, resp_commands).await
+         execute_commands(&mut conn_tx, connection_tx.clone(), uuid, commands, resp_commands).await
     }
 }
 
 async fn execute_commands(
-    stream: &mut Sender<Vec<u8>>,
+    conn_tx: &UnboundedSender<Vec<u8>>,
     tx: mpsc::Sender<Client>,
     id: Uuid,
     cmds: Vec<RedisCommand>,
     resp_commands: Vec<Resp>,
-){
+) {
     let mut send_rdb = false;
-    let mut bytes_batch = Vec::with_capacity(20);
 
     for (i, parsed_command) in cmds.iter().enumerate() {
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         if matches!(parsed_command, RedisCommand::PSYNC { .. }) {
             send_rdb = true;
         }
+
         let client_req = Client {
             client_id: id,
             timeout: None,
-            response_tx: resp_tx,
+            response_tx: conn_tx.clone(),
             resp_command: resp_commands[i].clone(),
             command: parsed_command.clone(),
         };
@@ -205,25 +204,14 @@ async fn execute_commands(
         if tx.send(client_req).await.is_err() {
             return;
         }
-
-        if let Some(mut response) = resp_rx.recv().await {
-            bytes_batch.append( &mut response);
-        }
     }
 
-    if !bytes_batch.is_empty() {
-        let _ = stream.send(bytes_batch).await;
-    }
     if send_rdb {
         let rdb_bytes = general_purpose::STANDARD
             .decode("UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==")
             .unwrap();
-
         let header = format!("${}\r\n", rdb_bytes.len());
-
-        stream.send(header.as_bytes().to_vec()).await.unwrap();
-        stream.send(rdb_bytes).await.unwrap();
-
+        let _ = conn_tx.send(header.into_bytes());
+        let _ = conn_tx.send(rdb_bytes);
     }
-
 }
