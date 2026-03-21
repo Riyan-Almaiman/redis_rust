@@ -76,11 +76,12 @@ pub enum RedisCommand {
     Info {
         section: Option<String>,
     },
-    REPLCONF,
+    REPLCONF (
+        Vec< String>),
     PSYNC {
         replication_id: String,
         replication_offset: String,
-    },
+    }
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
@@ -89,7 +90,7 @@ impl RedisCommand {
                 replication_id: "?".to_string(),
                 replication_offset: "-1".to_string(),
             }),
-            "replconf" => Ok(RedisCommand::REPLCONF),
+            "replconf" => Ok(RedisCommand::REPLCONF(args.to_vec().iter().map(|s| s.to_string()).collect()) ),
             "info" => {
                 if args.len() >= 1 {
                     Ok(RedisCommand::Info {

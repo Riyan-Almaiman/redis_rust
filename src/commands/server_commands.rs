@@ -1,7 +1,9 @@
 use crate::command_router::CommandResult;
 use crate::db::DB;
 use crate::resp::Resp;
+use crate::resp::Resp::BulkString;
 use crate::valuetype::ValueType;
+use std::collections::VecDeque;
 
 pub struct ServerCommands;
 
@@ -31,7 +33,16 @@ impl ServerCommands {
         CommandResult::Response(Resp::BulkString(sections.join("").into_bytes()))
     }
 
-    pub fn replconf() -> CommandResult {
+    pub fn replconf(args: Vec<String>) -> CommandResult {
+        if args.len() >= 1 {
+            if args[0].to_lowercase() == "getack" {
+                return CommandResult::Response(Resp::Array(VecDeque::from(vec![
+                    BulkString("REPLCONF".as_bytes().to_vec()),
+                    BulkString("ACK".as_bytes().to_vec()),
+                    BulkString("0".as_bytes().to_vec()),
+                ])));
+            }
+        }
         CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
     }
 
