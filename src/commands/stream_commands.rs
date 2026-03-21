@@ -120,11 +120,11 @@ impl StreamCommands {
                 Ok(new_id) => {
                     let id_str = new_id.get_id_string();
 
-                    if let Some(queue) = db.blocking_streams.waiters.get(&key) {
+                    if let Some(queue) = db.blocking.streams.waiters.get(&key) {
                         let mut to_wake = Vec::new();
 
                         for client_id in queue {
-                            if let Some(client) = db.blocking_streams.clients.get(client_id) {
+                            if let Some(client) = db.blocking.streams.clients.get(client_id) {
                                 if let Some(wait) = client.waits.iter().find(|wait| wait.key == key)
                                 {
                                     if new_id.time > wait.time

@@ -81,15 +81,15 @@ impl ServerCommands {
     }
 
     pub fn cleanup_timeout(db: &mut DB, target_id: uuid::Uuid) -> CommandResult {
-        if let Some(blocked_client) = db.blocked_list.blocked_list.remove(&target_id) {
-            for queue in db.blocked_list.waiters.values_mut() {
+        if let Some(blocked_client) = db.blocking.lists.blocked_list.remove(&target_id) {
+            for queue in db.blocking.lists.waiters.values_mut() {
                 queue.retain(|id| *id != target_id);
             }
             let _ = blocked_client.response_tx.send(Resp::NullArray);
         }
 
-        if let Some(stream_client) = db.blocking_streams.clients.remove(&target_id) {
-            for queue in db.blocking_streams.waiters.values_mut() {
+        if let Some(stream_client) = db.blocking.streams.clients.remove(&target_id) {
+            for queue in db.blocking.streams.waiters.values_mut() {
                 queue.retain(|id| *id != target_id);
             }
             let _ = stream_client.response_tx.send(Resp::NullArray);

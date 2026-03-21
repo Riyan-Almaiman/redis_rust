@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+#[derive(Default)]
 pub struct BlockingList {
     pub waiters: HashMap<Vec<u8>, VecDeque<Uuid>>,
     pub blocked_list: HashMap<Uuid, BlockingClient>,

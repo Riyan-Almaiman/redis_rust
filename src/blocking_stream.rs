@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+#[derive(Default)]
 pub struct BlockingStreams {
     pub waiters: HashMap<Vec<u8>, VecDeque<Uuid>>,
     pub clients: HashMap<Uuid, BlockingStreamClient>,

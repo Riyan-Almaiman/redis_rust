@@ -32,7 +32,7 @@ impl ListCommands {
                 let mut length = list.list.len();
                 for element in elements {
                     length += 1;
-                    if !db.blocked_list.wake_one(&key, element.clone()) {
+                    if !db.blocking.lists.wake_one(&key, element.clone()) {
                         list.rpush(vec![element]);
                     }
                 }

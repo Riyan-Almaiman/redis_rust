@@ -16,10 +16,11 @@ mod blocking_stream;
 mod command_router;
 mod commands;
 mod db;
-mod db_commands;
 mod stream;
 mod valuetype;
 mod replication;
+mod blocking_manger;
+mod role;
 
 use core::panic;
 use std::any::Any;
@@ -37,7 +38,7 @@ use uuid::Uuid;
 
 use crate::commands_parser::RedisCommand;
 
-use crate::db::{DB, Master, Role};
+use crate::db::{DB, Master};
 
 use crate::db::Client;
 
@@ -46,6 +47,7 @@ use crate::parser::Parser;
 use crate::resp::Resp;
 use rand::distr::{Alphanumeric, SampleString};
 use tokio::sync::mpsc::{Receiver, Sender};
+use crate::role::Role;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 

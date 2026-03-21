@@ -3,7 +3,7 @@ use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::command_router::CommandResult;
 use crate::commands_parser::RedisCommand;
 use crate::lists::List;
-use crate::parser;
+use crate::{command_router, parser};
 use crate::resp::Resp;
 use crate::valuetype::ValueType;
 use std::collections::hash_map::Entry;
@@ -14,93 +14,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
+use crate::blocking_manger::BlockingManager;
+use crate::role::Role;
 
 pub struct Master {
     pub replication_id: String,
     pub replication_offset: u64,
 }
-#[derive(Clone)]
 
-pub enum Role {
-    Master {
-        replication_id: String,
-        replication_offset: u64,
-    },
-    Slave {
-        master: String,
-        replication_id: String,
-        port: String,
-        replication_offset: u64,
-    },
-}
-impl Role {
-    pub fn get_replication(&self) -> String {
-        match self {
-            Role::Master {
-                replication_id,
-                replication_offset,
-            } => format!(
-                "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
-                self.get_role(),
-                replication_id,
-                replication_offset
-            ),
-            Role::Slave {
-                master,
-                replication_id,
-                port,
-                replication_offset,
-            } => format!(
-                "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
-                self.get_role(),
-                replication_id,
-                replication_offset
-            ),
-        }
-    }
-    pub fn get_repl_id(&self) -> String {
-        match self {
-            Role::Master {
-                replication_id,
-                replication_offset,
-            } => replication_id.clone(),
-
-            Role::Slave {
-                master,
-                replication_id,
-                port,
-                replication_offset,
-            } => replication_id.clone(),
-        }
-    }
-    pub fn get_repl_offset(&self) -> String {
-        match self {
-            Role::Master {
-                replication_id,
-                replication_offset,
-            } => replication_offset.to_string(),
-            Role::Slave {
-                master,
-                replication_id,
-                port,
-                replication_offset,
-            } => replication_offset.to_string(),
-        }
-    }
-
-    pub fn get_role(&self) -> String {
-        match self {
-            Role::Master { .. } => "role:master".to_string(),
-            Role::Slave { .. } => "role:slave".to_string(),
-        }
-    }
-}
 pub struct DB {
     pub database: HashMap<Vec<u8>, KeyValue>,
     pub multi_list: HashMap<Uuid, Vec<RedisCommand>>,
     pub receiver: mpsc::Receiver<Client>,
-    pub blocked_list: BlockingList,
-    pub blocking_streams: BlockingStreams,
+    pub blocking: BlockingManager,
     pub sender: mpsc::Sender<Client>,
     pub role: Role,
     pub slaves: Vec<tokio::sync::mpsc::Sender<Vec<u8>>>
@@ -125,6 +51,9 @@ impl KeyValue {
     }
 }
 impl DB {
+    pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> CommandResult {
+        command_router::route(self, command, client_id)
+    }
     pub async fn new(role: Role) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
@@ -135,14 +64,10 @@ impl DB {
             role,
             slaves: Vec::new(),
             multi_list: HashMap::new(),
-            blocked_list: BlockingList {
-                blocked_list: Default::default(),
-                waiters: HashMap::new(),
-            },
-            blocking_streams: BlockingStreams {
-                waiters: HashMap::new(),
-                clients: HashMap::new(),
-            },
+            blocking: BlockingManager {
+                lists: Default::default(),
+                streams: Default::default(),
+            }
         }
     }fn is_write_command(cmd: &RedisCommand) -> bool {
         matches!(cmd,
@@ -153,112 +78,10 @@ impl DB {
         RedisCommand::XAdd { .. }
     )
     }
-    pub fn create_blocking_stream_client(
-        &mut self,
-        client_id: Uuid,
-        resolved_streams: Vec<StreamWait>,
-        response_tx: oneshot::Sender<Resp>,
-        timeout_ms: f64,
-    ) {
-        let client = BlockingStreamClient {
-            id: client_id,
-            response_tx,
-            waits: resolved_streams,
-        };
 
-        for wait in &client.waits {
-            self.blocking_streams
-                .waiters
-                .entry(wait.key.clone())
-                .or_default()
-                .push_back(client_id);
-        }
-        self.blocking_streams.clients.insert(client_id, client);
-
-        if timeout_ms > 0.0 {
-            let sender_clone = self.sender.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
-                let _ = sender_clone
-                    .send(Client {
-                        client_id,
-                        timeout: None,
-                        response_tx: oneshot::channel().0,
-                        response_tx_slave: None,
-                        resp_command: Resp::Error(b"ok".to_vec()),
-                        command: RedisCommand::InternalTimeoutCleanup { client_id },
-                    })
-                    .await;
-            });
-        }
-    }
-
-    pub fn create_blocking_client(
-        &mut self,
-        client_id: Uuid,
-        keys: Vec<Vec<u8>>,
-        response_tx: oneshot::Sender<Resp>,
-        timeout: f64,
-    ) {
-        let client = BlockingClient {
-            id: client_id,
-            response_tx,
-        };
-
-        self.blocked_list.register(keys, client);
-        if timeout > 0.0 {
-            let sender_clone = self.sender.clone();
-            let id = client_id;
-
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
-
-                let _ = sender_clone
-                    .send(Client {
-                        client_id: id,
-                        timeout: None,
-                        response_tx: oneshot::channel().0,
-                        response_tx_slave: None,
-                        resp_command: Resp::Error(b"ok".to_vec()),
-
-                        command: RedisCommand::InternalTimeoutCleanup { client_id: id },
-                    })
-                    .await;
-            });
-        }
-    }
-    pub fn wake_stream_client(&mut self, client_id: Uuid) {
-        if let Some(client) = self.blocking_streams.clients.remove(&client_id) {
-            // Remove from all wait queues
-            for q in self.blocking_streams.waiters.values_mut() {
-                q.retain(|id| *id != client_id);
-            }
-
-            let mut result = VecDeque::new();
-
-            for wait in &client.waits {
-                if let Some(kv) = self.database.get(&wait.key) {
-                    if let ValueType::Stream(stream) = &kv.value {
-                        let entries = stream.get_read_streams(wait.time, wait.sequence);
-
-                        if let Resp::Array(ref arr) = entries {
-                            if !arr.is_empty() {
-                                result.push_back(Resp::Array(VecDeque::from([
-                                    Resp::BulkString(wait.key.clone()),
-                                    entries,
-                                ])));
-                            }
-                        }
-                    }
-                }
-            }
-
-            let _ = client.response_tx.send(Resp::Array(result));
-        }
-    }
 
     pub async fn start(&mut self) {
-        while let Some(mut request) = self.receiver.recv().await {
+        while let Some(request) = self.receiver.recv().await {
             let Client {
                 command,
                 response_tx,
