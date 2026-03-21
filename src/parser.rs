@@ -178,14 +178,15 @@ impl Parser {
         }
     }
     fn read_bulk_string_size(&mut self) -> CurrentState {
+        let saved = self.current_index;
         let mut string = Vec::new();
         let num = self.read_until_clrf();
         let number = match num {
             Some(n) => match Self::vec_to_i64(&n) {
                 Some(n) => n,
-                None => return InvalidCommand,
+                None => { self.current_index = saved; return Incomplete; },
             },
-            None => return InvalidCommand,
+            None => { self.current_index = saved; return Incomplete; },
         };
         if self.read_buffer.len() < (self.current_index + number as usize + 2) {
             return Incomplete;
