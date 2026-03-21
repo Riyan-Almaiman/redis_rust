@@ -88,13 +88,13 @@ impl Parser {
                                     None => { self.current_index = saved; return None; }
                                 };
 
-                                if self.read_buffer.len() < self.current_index + len {
+                                if self.read_buffer.len() < self.current_index + len + 2 {
                                     self.current_index = saved;
                                     return None;
                                 }
 
                                 let data = self.read_buffer[self.current_index..self.current_index + len].to_vec();
-                                self.current_index += len;
+                                self.current_index += len + 2;
                                 self.reset();
                                 return Some(Resp::BulkString(data));
                             }
