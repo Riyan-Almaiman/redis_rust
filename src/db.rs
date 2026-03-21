@@ -83,10 +83,11 @@ impl DB {
 
     }
 
-    fn send_slaves(&self, resp: &Vec<u8>) {
-                for slave in &self.slaves{
-            let _ = slave.send(resp.clone());
-        }
+    fn send_slaves(&mut self, resp: &Vec<u8>) -> u64 {
+        self.slaves.retain(|slave| {
+            slave.send(resp.clone()).is_ok()
+        });
+        self.slaves.len() as u64
     }
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
@@ -149,7 +150,7 @@ impl DB {
 
             let outcome = self.execute_commands(command.clone(), client_id);
             if Self::is_write_command(&command){
-                    self.send_slaves(&cmd_buffer)
+                    let slaves_count = self.send_slaves(&cmd_buffer);
             }
             match outcome {
                 CommandResult::Response(resp) => {
@@ -158,7 +159,7 @@ impl DB {
                 CommandResult::RegisterSlave(resp) => {
                     match self.role {
                         Role::Master {..} => {
-                            send_cmd(response_tx.clone(), resp);  
+                            send_cmd(response_tx.clone(), resp);
 
                             let rdb_bytes = base64::engine::general_purpose::STANDARD
                                 .decode("UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==")

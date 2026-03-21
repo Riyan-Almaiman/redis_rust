@@ -81,11 +81,24 @@ pub enum RedisCommand {
     PSYNC {
         replication_id: String,
         replication_offset: String,
-    }
+    },
+    Wait {
+    replicas_num: u64,
+    timeout: u64,
+}
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+            "wait" => {
+                if args.len() < 2 {
+                    return Err("WAIT requires numreplicas and timeout".into());
+                }
+                Ok(RedisCommand::Wait {
+                    replicas_num: args[0].parse::<u64>().map_err(|_| "Invalid numreplicas")?,
+                    timeout: args[1].parse::<u64>().map_err(|_| "Invalid timeout")?,
+                })
+            }
             "psync" => Ok(RedisCommand::PSYNC {
                 replication_id: "?".to_string(),
                 replication_offset: "-1".to_string(),

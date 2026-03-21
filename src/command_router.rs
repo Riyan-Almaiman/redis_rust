@@ -30,6 +30,7 @@ use crate::db::DB;
 
 pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
     match cmd {
+        RedisCommand::Wait {timeout, replicas_num} => ServerCommands::wait(db, timeout, replicas_num),
         RedisCommand::Ping => ServerCommands::ping(),
         RedisCommand::Echo(data) => ServerCommands::echo(data),
         RedisCommand::Get(key) => StringCommands::get(db, key),
