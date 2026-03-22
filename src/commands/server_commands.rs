@@ -33,19 +33,19 @@ impl ServerCommands {
 
         CommandResult::Response(Resp::BulkString(sections.join("").into_bytes()))
     }
-
-    pub fn replconf(args: Vec<String>) -> CommandResult {
-        if args.len() >= 2 {
-
-            if args[0].to_lowercase() == "getack" && args[1] == "*" {
-                return CommandResult::Response(Resp::Array(VecDeque::from(vec![
-                    BulkString("REPLCONF".as_bytes().to_vec()),
-                    BulkString("ACK".as_bytes().to_vec()),
-                    BulkString("0".as_bytes().to_vec()),
-                ])));
-            }
+    pub fn replconf(args: Vec<String>, db: &DB) -> CommandResult {
+        if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
+            return  CommandResult::Response(  Resp::Array(vec![
+                Resp::BulkString(b"REPLCONF".to_vec()),
+                Resp::BulkString(b"ACK".to_vec()),
+                Resp::BulkString(db.role.get_repl_offset().to_string().into_bytes()),
+            ].into()))
         }
-        CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
+       else if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] != "*" {
+
+           return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
+       }
+        CommandResult::None
     }
 
     pub fn psync(db: &DB) -> CommandResult {
@@ -93,8 +93,7 @@ impl ServerCommands {
         CommandResult::Response(Resp::SimpleString(type_str.to_vec()))
     }
     pub fn wait(db: &mut DB, timeout: u64, replicas: u64) -> CommandResult {
-            let connected_slaves = db.cleanup_dead_slaves();
-            return CommandResult::Response(Resp::Integer(connected_slaves as usize));
+             CommandResult::Wait { timeout, replicas, offset: db.role.get_repl_offset().parse().unwrap() }
     }
     pub fn cleanup_timeout(db: &mut DB, target_id: uuid::Uuid) -> CommandResult {
         if let Some(blocked_client) = db.blocking.lists.blocked_list.remove(&target_id) {

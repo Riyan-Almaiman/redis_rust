@@ -9,7 +9,11 @@ use uuid::Uuid;
 
 pub enum CommandResult {
     Response(Resp),
-
+    Wait {
+        timeout: u64,
+        replicas: u64,
+        offset: u64
+    },
     BlockList {
         keys: Vec<Vec<u8>>,
         timeout: f64,
@@ -44,7 +48,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
         RedisCommand::BLPop { keys, timeout } => ListCommands::blpop(db, keys, timeout),
         RedisCommand::Type(key) => ServerCommands::data_type(db, key),
         RedisCommand::Info { section } => ServerCommands::info(db, section),
-        RedisCommand::REPLCONF(args) => ServerCommands::replconf(args),
+        RedisCommand::REPLCONF(args) => ServerCommands::replconf(args, db),
         RedisCommand::PSYNC { .. } => ServerCommands::psync(db),
         RedisCommand::Multi => ServerCommands::multi(db, client_id),
         RedisCommand::Discard => ServerCommands::discard(db, client_id),

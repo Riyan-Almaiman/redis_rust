@@ -1,23 +1,16 @@
-use crate::blocking_list::{BlockingClient, BlockingList};
-use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
+use crate::blocking_manger::BlockingManager;
+use crate::command_router;
 use crate::command_router::CommandResult;
 use crate::commands_parser::RedisCommand;
-use crate::lists::List;
-use crate::{command_router, parser};
 use crate::resp::Resp;
-use crate::valuetype::ValueType;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::fmt::format;
-use std::time::{Duration, SystemTime};
-use base64::Engine;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
-use crate::blocking_manger::BlockingManager;
 use crate::role::Role;
 use crate::send::send_cmd;
+use crate::valuetype::ValueType;
+use base64::Engine;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, SystemTime};
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 pub struct Master {
     pub replication_id: String,
@@ -31,7 +24,8 @@ pub struct DB {
     pub blocking: BlockingManager,
     pub sender: mpsc::Sender<Client>,
     pub role: Role,
-    pub slaves: Vec<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>
+    pub slaves: Vec<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
+    pub ack_waiters: Vec<mpsc::UnboundedSender<u64>>,
 }
 #[derive(Debug)]
 pub struct Client {
@@ -63,53 +57,38 @@ impl DB {
             sender: pipeline_tx,
             receiver: pipeline_rx,
             role,
+            ack_waiters: Vec::new(),
             slaves: Vec::new(),
             multi_list: HashMap::new(),
             blocking: BlockingManager {
                 lists: Default::default(),
                 streams: Default::default(),
-            }
+            },
         }
     }
     fn is_write_command(cmd: &RedisCommand) -> bool {
-        matches!(cmd,
-        RedisCommand::Set { .. } |
-        RedisCommand::Incr { .. } |
-        RedisCommand::RPush { .. } |
-        RedisCommand::LPush { .. } |
-        RedisCommand::XAdd { .. }
-    )
-
-
+        matches!(
+            cmd,
+            RedisCommand::Set { .. }
+                | RedisCommand::Incr { .. }
+                | RedisCommand::RPush { .. }
+                | RedisCommand::LPush { .. }
+                | RedisCommand::LPop { .. }
+                | RedisCommand::XAdd { .. }
+        )
     }
 
     fn send_slaves(&mut self, resp: &Vec<u8>) -> u64 {
-        self.slaves.retain(|slave| {
-            slave.send(resp.clone()).is_ok()
-        });
+        self.role.increment_offset(resp.len());
+        self.slaves.retain(|slave| slave.send(resp.clone()).is_ok());
         self.slaves.len() as u64
     }
-   pub fn cleanup_dead_slaves(&mut self) -> u64 {
+    pub fn cleanup_dead_slaves(&mut self) -> u64 {
         self.slaves.retain(|slave| !slave.is_closed());
         self.slaves.len() as u64
     }
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
-            // for slave in &self.slaves {
-            //     let mut buf = Vec::new();
-            //     println!("{}", self.slaves.len());
-            //     Resp::Array(vec![
-            //         Resp::BulkString(b"REPLCONF".to_vec()),
-            //         Resp::BulkString(b"GETACK".to_vec()),
-            //         Resp::BulkString(b"*".to_vec()),
-            //     ].into()).write_format(&mut buf);
-            //
-            //     let r = slave.send(buf);
-            //     match r {
-            //         Ok(_) => {},
-            //         Err(e) => {println!("{}", e); },
-            //     }
-            // }
             let Client {
                 command,
                 response_tx,
@@ -145,7 +124,6 @@ impl DB {
                     _ => {
                         client.push(command);
                         send_cmd(response_tx, Resp::SimpleString(b"QUEUED".to_vec()));
-
                     }
                 }
 
@@ -153,32 +131,90 @@ impl DB {
             }
 
             let outcome = self.execute_commands(command.clone(), client_id);
-            if Self::is_write_command(&command){
-                    let slaves_count = self.send_slaves(&cmd_buffer);
-            }
+
             match outcome {
                 CommandResult::Response(resp) => {
                     send_cmd(response_tx, resp);
                 }
-                CommandResult::RegisterSlave(resp) => {
-                    match self.role {
-                        Role::Master {..} => {
-                            send_cmd(response_tx.clone(), resp);
+                CommandResult::Wait {
+                    timeout,
+                    replicas,
+                    offset,
+                } => {
+                    self.cleanup_dead_slaves();
+                    let slave_count = self.slaves.len() as u64;
 
-                            let rdb_bytes = base64::engine::general_purpose::STANDARD
+                    if slave_count == 0 || offset == 0 {
+                        send_cmd(response_tx, Resp::Integer(slave_count as usize));
+                        continue;
+                    }
+
+                    let (ack_tx, mut ack_rx) = mpsc::unbounded_channel::<u64>();
+                    self.ack_waiters.push(ack_tx);
+
+                    let mut ack_buf = Vec::new();
+                    Resp::Array(
+                        vec![
+                            Resp::BulkString(b"REPLCONF".to_vec()),
+                            Resp::BulkString(b"GETACK".to_vec()),
+                            Resp::BulkString(b"*".to_vec()),
+                        ]
+                        .into(),
+                    )
+                    .write_format(&mut ack_buf);
+
+                    let slaves = self.slaves.clone();
+
+                    tokio::spawn(async move {
+                        let mut acked = 0u64;
+                        let deadline = tokio::time::sleep(Duration::from_millis(timeout));
+                        tokio::pin!(deadline);
+                        let mut interval = tokio::time::interval(Duration::from_millis(50));
+
+                        for slave in &slaves {
+                            let _ = slave.send(ack_buf.clone());
+                        }
+
+                        loop {
+                            tokio::select! {
+                                _ = &mut deadline => break,
+                                _ = interval.tick() => {
+
+                                    for slave in &slaves {
+                                        let _ = slave.send(ack_buf.clone());
+                                    }
+                                }
+                                Some(ack_offset) = ack_rx.recv() => {
+                                    if ack_offset >= offset {
+                                        acked += 1;
+                                    }
+                                    if acked >= replicas {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        send_cmd(response_tx, Resp::Integer(acked as usize));
+                    });
+                }
+                CommandResult::RegisterSlave(resp) => match self.role {
+                    Role::Master { .. } => {
+                        send_cmd(response_tx.clone(), resp);
+
+                        let rdb_bytes = base64::engine::general_purpose::STANDARD
                                 .decode("UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==")
                                 .unwrap();
-                            let header = format!("${}\r\n", rdb_bytes.len());
-                            let _ = response_tx.send(header.into_bytes());
-                            let _ = response_tx.send(rdb_bytes);
+                        let header = format!("${}\r\n", rdb_bytes.len());
+                        let _ = response_tx.send(header.into_bytes());
+                        let _ = response_tx.send(rdb_bytes);
 
-                            self.slaves.push(response_tx);
-                        }
-                        Role::Slave { .. } => {
-                            send_cmd(response_tx.clone(), resp);
-                        }
+                        self.slaves.push(response_tx);
                     }
-                }
+                    Role::Slave { .. } => {
+                        send_cmd(response_tx.clone(), resp);
+                    }
+                },
 
                 CommandResult::BlockList { keys, timeout } => {
                     self.create_blocking_client(client_id, keys, response_tx, timeout);
@@ -203,6 +239,10 @@ impl DB {
                 }
 
                 CommandResult::None => {}
+            }
+
+            if Self::is_write_command(&command) {
+                let slaves_count = self.send_slaves(&cmd_buffer);
             }
         }
     }

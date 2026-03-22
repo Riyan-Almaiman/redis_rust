@@ -137,22 +137,22 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         .collect();
                     println!("FROM MASTER: {} {:?}", cmd_name, args);
 
-                    if cmd_name == "replconf" {
-                        if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
-                            let response = Resp::Array(vec![
-                                Resp::BulkString(b"REPLCONF".to_vec()),
-                                Resp::BulkString(b"ACK".to_vec()),
-                                Resp::BulkString(offset.to_string().into_bytes()),
-                            ].into());
-
-                            let mut buf = Vec::new();
-                            response.write_format(&mut buf);
-                            writer.write_all(&buf).await.unwrap();
-
-                            offset += cmd_bytes;
-                            continue;
-                        }
-                    }
+                    // if cmd_name == "replconf" {
+                    //     if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
+                    //         let response = Resp::Array(vec![
+                    //             Resp::BulkString(b"REPLCONF".to_vec()),
+                    //             Resp::BulkString(b"ACK".to_vec()),
+                    //             Resp::BulkString(offset.to_string().into_bytes()),
+                    //         ].into());
+                    //
+                    //         let mut buf = Vec::new();
+                    //         response.write_format(&mut buf);
+                    //         writer.write_all(&buf).await.unwrap();
+                    //
+                    //         offset += cmd_bytes;
+                    //         continue;
+                    //     }
+                    // }
 
                     let command = match RedisCommand::from_parts(
                         &cmd_name,
@@ -178,7 +178,15 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         return;
                     }
 
-                    offset += cmd_bytes;
+                    // offset += cmd_bytes;
+
+                    if cmd_name == "replconf" {
+                      if   let Some(res) = rx.recv().await {
+                          writer.write_all(res.as_slice()).await.unwrap();
+
+                      }
+
+                    }
                 }
 
                 _ => {}
