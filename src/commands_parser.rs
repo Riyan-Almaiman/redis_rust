@@ -87,6 +87,7 @@ pub enum RedisCommand {
     Config (Vec<String>),
 
     Keys(String),
+    Subscribe(String),
 
 }
 impl RedisCommand {
@@ -97,6 +98,12 @@ impl RedisCommand {
                     return Err("no params".into());
                 }
                 Ok(RedisCommand::Keys(args[0].to_owned()))
+            }
+            "subscribe" => {
+                if args.len() < 1 {
+                    return Err("no params".into());
+                }
+                Ok(RedisCommand::Subscribe(args[0].to_owned()))
             }
             "wait" => {
                 if args.len() < 2 {

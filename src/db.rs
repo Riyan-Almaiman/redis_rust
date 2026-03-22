@@ -32,6 +32,9 @@ pub struct DB {
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
     pub dir: String,
     pub file_name: String,
+    pub subscribers: HashMap<Uuid, Vec<String>>,
+
+
 }
 #[derive(Debug)]
 pub struct Client {
@@ -65,6 +68,7 @@ impl DB {
             file_name,
             dir,
             role,
+            subscribers: HashMap::new(),
             ack_waiters: Vec::new(),
             slaves: HashMap::new(),
             multi_list: HashMap::new(),
@@ -116,7 +120,6 @@ impl DB {
                                     kv.expiry = Some(expiry);
                                 }
                             } else {
-                                // already expired, don't even keep the key
                                 self.database.remove(&key);
                             }
                         }
