@@ -435,4 +435,35 @@ impl RedisCommand {
             end_sequence: end_seq,
         })
     }
+    pub fn name(&self) -> &str {
+        match self {
+            RedisCommand::Ping => "ping",
+            RedisCommand::Incr { .. } => "incr",
+            RedisCommand::Echo(_) => "echo",
+            RedisCommand::Set { .. } => "set",
+            RedisCommand::Get(_) => "get",
+            RedisCommand::RPush { .. } => "rpush",
+            RedisCommand::LPush { .. } => "lpush",
+            RedisCommand::InternalTimeoutCleanup { .. } => "internal_timeout_cleanup",
+            RedisCommand::LRange { .. } => "lrange",
+            RedisCommand::LLen(_) => "llen",
+            RedisCommand::LPop { .. } => "lpop",
+            RedisCommand::BLPop { .. } => "blpop",
+            RedisCommand::Type(_) => "type",
+            RedisCommand::XAdd { .. } => "xadd",
+            RedisCommand::XRange { .. } => "xrange",
+            RedisCommand::XRead { .. } => "xread",
+            RedisCommand::Multi => "multi",
+            RedisCommand::Error(_) => "error",
+            RedisCommand::Exec => "exec",
+            RedisCommand::Discard => "discard",
+            RedisCommand::Info { .. } => "info",
+            RedisCommand::REPLCONF(_) => "replconf",
+            RedisCommand::PSYNC { .. } => "psync",
+            RedisCommand::Wait { .. } => "wait",
+            RedisCommand::Config(_) => "config",
+            RedisCommand::Keys(_) => "keys",
+            RedisCommand::Subscribe(_) => "subscribe",
+        }
+    }
 }

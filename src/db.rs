@@ -164,6 +164,14 @@ impl DB {
                 resp_command,
                 ..
             } = request;
+            if self.subscribers.contains_key(&client_id) {
+                if !matches!(command, RedisCommand::Subscribe(_) | RedisCommand::Ping ) {
+                    let res = format!("Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
+                    send_cmd(response_tx, Resp::Error(res.as_bytes().to_vec()));
+                    continue
+                    
+                }
+            }
             let mut cmd_buffer = Vec::new();
             resp_command.write_format(&mut cmd_buffer);
 
