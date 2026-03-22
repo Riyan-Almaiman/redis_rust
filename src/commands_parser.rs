@@ -88,6 +88,10 @@ pub enum RedisCommand {
 
     Keys(String),
     Subscribe(String),
+    Publish{
+        channel: String,
+        message: String,
+    }
 
 }
 impl RedisCommand {
@@ -98,6 +102,12 @@ impl RedisCommand {
                     return Err("no params".into());
                 }
                 Ok(RedisCommand::Keys(args[0].to_owned()))
+            }
+            "publish" => {
+                if args.len() < 2 {
+                    return Err("no params".into());
+                }
+                Ok(RedisCommand::Publish { channel: args[0].to_owned(), message: args[1].to_owned() })
             }
             "subscribe" => {
                 if args.len() < 1 {
@@ -437,6 +447,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",
             RedisCommand::Incr { .. } => "incr",
             RedisCommand::Echo(_) => "echo",

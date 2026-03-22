@@ -14,7 +14,13 @@ impl ServerCommands {
     pub fn ping() -> CommandResult {
         CommandResult::Response(Resp::SimpleString(b"PONG".to_vec()))
     }
+    pub fn publish(db:&mut  DB, channel: String, message: String) -> CommandResult {
+        let count = db.subscribers.values()
+            .filter(|channels| channels.contains(&channel))
+            .count();
 
+        CommandResult::Response(Resp::Integer(count))
+    }
     pub fn echo(data: Vec<u8>) -> CommandResult {
         CommandResult::Response(Resp::BulkString(data))
     }
