@@ -85,10 +85,19 @@ pub enum RedisCommand {
         timeout: u64,
     },
     Config (Vec<String>),
+
+    Keys(String),
+
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+            "keys" => {
+                if args.len() < 1 {
+                    return Err("no params".into());
+                }
+                Ok(RedisCommand::Keys(args[0].to_owned()))
+            }
             "wait" => {
                 if args.len() < 2 {
                     return Err("WAIT requires numreplicas and timeout".into());

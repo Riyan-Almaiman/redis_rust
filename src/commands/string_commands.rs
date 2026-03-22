@@ -27,7 +27,37 @@ impl StringCommands {
             None => CommandResult::Response(Resp::NullBulkString),
         }
     }
+    fn matches_pattern(pattern: &[u8], key: &[u8]) -> bool {
+        match pattern.iter().position(|&b| b == b'*') {
+            None => pattern == key,
+            Some(star) => {
+                let prefix = &pattern[..star];
+                let suffix = &pattern[star + 1..];
+                key.starts_with(prefix) && key.ends_with(suffix) && key.len() >= prefix.len() + suffix.len()
+            }
+        }
+    }
 
+    pub fn keys(db: &DB, pattern: String) -> CommandResult {
+        let now = SystemTime::now();
+        let pattern = pattern.as_bytes();
+        let keys: Vec<Resp> = db.database
+            .iter()
+            .filter(|(k, kv)| {
+                kv.expiry.map_or(true, |e| e > now) &&     match pattern.iter().position(|&b| b == b'*') {
+                    None => pattern == *k,
+                    Some(star) => {
+                        let prefix = &pattern[..star];
+                        let suffix = &pattern[star + 1..];
+                        k.starts_with(prefix) && k.ends_with(suffix) && k.len() >= prefix.len() + suffix.len()
+                    }
+                }
+            })
+            .map(|(k, _)| Resp::BulkString(k.clone()))
+            .collect();
+
+        CommandResult::Response(Resp::Array(keys.into()))
+    }
     pub fn set(db: &mut DB, key: Vec<u8>, value: Vec<u8>, expiry: Option<u64>) -> CommandResult {
         let expiry_time = expiry.map(|ms| SystemTime::now() + Duration::from_millis(ms));
 
