@@ -41,14 +41,11 @@ impl ServerCommands {
                 Resp::BulkString(db.role.get_repl_offset().to_string().into_bytes()),
             ].into()))
         }
-       else if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] != "*" {
+       else if args.len() >= 2 {
 
            return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
        }
-       else if args.len() >= 2 && args[0].to_lowercase() == "listening-port" && args[1].parse::<u16>().is_ok() {
 
-           return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
-       }
         CommandResult::None
     }
 
