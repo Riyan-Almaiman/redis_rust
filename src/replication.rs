@@ -98,11 +98,9 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         };
         parser.read_buffer.extend_from_slice(&buffer[..n]);
         while let Some(mut resp) = parser.parse() {
-            let cmd_bytes = {
-                let mut buf = Vec::new();
-                resp.write_format(&mut buf);
-                buf.len()
-            };
+            let mut buf = Vec::new();
+            resp.write_format(&mut buf);
+            let cmd_bytes = buf.len();
             let resp_cmd = resp.clone();
 
             match resp {
@@ -114,6 +112,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                 }
 
                 Resp::BulkString(data) => {
+                    parser.read_buffer.clear();
                     continue;
                 }
 
@@ -180,7 +179,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     if let Err(e) = db_tx.send(client).await {
                         println!("Failed to send command to DB: {}", e);
                     }
-                    
+
                     offset += cmd_bytes;
 
 
