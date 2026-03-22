@@ -46,7 +46,7 @@ impl ServerCommands {
         resp.push_back(BulkString(channel.as_bytes().to_vec()));
         resp.push_back(Integer(subscriber.len()));
 
-        CommandResult::Response(Resp::Array(resp))
+        CommandResult::Subscribe(Resp::Array(resp))
     }
     pub fn info(db: &DB, section: Option<String>) -> CommandResult {
         let mut sections = Vec::new();

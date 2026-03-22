@@ -14,6 +14,7 @@ pub enum CommandResult {
         replicas: u64,
         offset: u64,
     },
+    Subscribe(Resp),
     BlockList {
         keys: Vec<Vec<u8>>,
         timeout: f64,

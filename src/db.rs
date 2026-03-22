@@ -200,6 +200,7 @@ impl DB {
 
             if let Some(client) = self.multi_list.get_mut(&client_id) {
                 match command {
+
                     RedisCommand::Exec => {
                         let cmds = self.multi_list.remove(&client_id).unwrap_or_default();
 
@@ -232,6 +233,11 @@ impl DB {
             let outcome = self.execute_commands(command.clone(), client_id);
 
             match outcome {
+                CommandResult::Subscribe(resp) => {
+                    self.subscriber_txs.insert(client_id, response_tx.clone());
+                    send_cmd(response_tx, resp);
+
+                }
                 CommandResult::Response(resp) => {
                     send_cmd(response_tx, resp);
                 }
