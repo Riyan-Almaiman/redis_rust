@@ -37,10 +37,10 @@ impl ServerCommands {
     pub fn config(db: &DB, args: Vec<String>) -> CommandResult {
         let mut res = Vec::new();
 
-        match args[0].as_str() {
+        match args[0].to_lowercase().as_str() {
             "get" => {
                     for arg in args[1..].iter() {
-                        match arg.as_str() {
+                        match arg.to_lowercase().as_str() {
                             "dir" => {
                                 res.push(Resp::BulkString(arg.as_bytes().to_vec()));
                                 res.push(Resp::BulkString(db.dir.as_bytes().to_vec()));
