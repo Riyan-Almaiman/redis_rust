@@ -27,16 +27,6 @@ impl StringCommands {
             None => CommandResult::Response(Resp::NullBulkString),
         }
     }
-    fn matches_pattern(pattern: &[u8], key: &[u8]) -> bool {
-        match pattern.iter().position(|&b| b == b'*') {
-            None => pattern == key,
-            Some(star) => {
-                let prefix = &pattern[..star];
-                let suffix = &pattern[star + 1..];
-                key.starts_with(prefix) && key.ends_with(suffix) && key.len() >= prefix.len() + suffix.len()
-            }
-        }
-    }
 
     pub fn keys(db: &DB, pattern: String) -> CommandResult {
         let now = SystemTime::now();

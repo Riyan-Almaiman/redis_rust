@@ -93,12 +93,37 @@ impl DB {
                 if let Some(cmd) = cmd_name {
                     let cmd_name_bytes = Resp::get_bytes(&cmd).unwrap();
                     let cmd_name = std::str::from_utf8(cmd_name_bytes).unwrap().to_lowercase();
-                    let args: Vec<String> = arr.iter()
-                        .filter_map(|a| Resp::get_bytes(a))
-                        .filter_map(|b| std::str::from_utf8(b).ok())
-                        .map(|s| s.to_string())
+                    let args: Vec<&str> = arr
+                        .iter()
+                        .map(|a| {
+                            let bytes: &[u8] = Resp::get_bytes(a).unwrap();
+                            std::str::from_utf8(bytes).expect("Invalid UTF-8")
+                        })
                         .collect();
-                    if let Ok(command) = RedisCommand::from_parts(&cmd_name, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
+                    let cmd_name = std::str::from_utf8(cmd_name_bytes).unwrap().to_lowercase();
+
+                    if cmd_name == "select" {
+                        continue;
+                    }
+
+                    if cmd_name == "pexpireat" {
+                        let key = args.get(0).map(|s| s.as_bytes().to_vec());
+                        let ts = args.get(1).and_then(|s| s.parse::<u64>().ok());
+                        if let (Some(key), Some(ts)) = (key, ts) {
+                            let expiry = SystemTime::UNIX_EPOCH + Duration::from_millis(ts);
+                            if expiry > SystemTime::now() {
+                                if let Some(kv) = self.database.get_mut(&key) {
+                                    kv.expiry = Some(expiry);
+                                }
+                            } else {
+                                // already expired, don't even keep the key
+                                self.database.remove(&key);
+                            }
+                        }
+                        continue;
+                    }
+
+                    if let Ok(command) = RedisCommand::from_parts(&*cmd_name, &args) {
                         command_router::route(self, command, Uuid::new_v4());
                     }
                 }
