@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 use crate::parser::Parser;
+use crate::resp::Resp::BulkString;
 
 pub struct Master {
     pub replication_id: String,
@@ -165,12 +166,20 @@ impl DB {
                 ..
             } = request;
             if self.subscribers.contains_key(&client_id) {
-                if !matches!(command, RedisCommand::Subscribe(_) | RedisCommand::Ping ) {
-                    let res = format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
-                    send_cmd(response_tx, Resp::Error(res.as_bytes().to_vec()));
-                    continue
-                    
+                match &command {
+                    RedisCommand::Ping => {
+                        send_cmd(response_tx, Resp::Array(VecDeque::from(vec![BulkString("pong".as_bytes().to_vec()), BulkString("".as_bytes().to_vec())])));
+                        continue
+                    }
+                    RedisCommand::Subscribe(_) => {}
+
+                    _ => {
+                        let res = format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
+                        send_cmd(response_tx, Resp::Error(res.as_bytes().to_vec()));
+                        continue
+                    }
                 }
+
             }
             let mut cmd_buffer = Vec::new();
             resp_command.write_format(&mut cmd_buffer);
