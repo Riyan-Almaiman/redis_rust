@@ -45,6 +45,10 @@ impl ServerCommands {
 
            return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
        }
+       else if args.len() >= 2 && args[0].to_lowercase() == "listening-port" && args[1].parse::<u16>().is_ok() {
+
+           return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
+       }
         CommandResult::None
     }
 
