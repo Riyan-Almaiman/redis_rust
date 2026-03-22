@@ -112,7 +112,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                 }
 
                 Resp::BulkString(data) => {
-                    parser.read_buffer.clear();
                     continue;
                 }
 
