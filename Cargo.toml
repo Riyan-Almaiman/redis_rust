@@ -10,6 +10,7 @@ base64 = "0.22.1"
 bytes = "1.3.0"                                     # helps manage buffers
 indexmap = "2.13.0"
 rand = { version = "0.10.0" } # async networking
+rdb = "0.3.0"
 resp = "1.0.3"
 
 thiserror = "1.0.32"                                # error handling

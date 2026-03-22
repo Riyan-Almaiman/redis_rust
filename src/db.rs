@@ -8,9 +8,13 @@ use crate::send::send_cmd;
 use crate::valuetype::ValueType;
 use base64::Engine;
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use crate::parser::Parser;
 
 pub struct Master {
     pub replication_id: String,
@@ -54,13 +58,13 @@ impl DB {
     pub async fn new(role: Role, dir: String, file_name: String) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
-        Self {
+        let mut db = Self {
             database: HashMap::new(),
             sender: pipeline_tx,
             receiver: pipeline_rx,
-            role,
-            dir,
             file_name,
+            dir,
+            role,
             ack_waiters: Vec::new(),
             slaves: HashMap::new(),
             multi_list: HashMap::new(),
@@ -68,6 +72,37 @@ impl DB {
                 lists: Default::default(),
                 streams: Default::default(),
             },
+        };
+
+        db.load_rdb(&format!("{}/{}", db.dir, db.file_name));
+        db
+    }
+    fn load_rdb(&mut self, path: &str) {
+        let tmp_path = Path::new("/tmp/rdb_output.resp");
+        let Ok(file) = File::open(path) else { return };
+        let reader = BufReader::new(file);
+        let Ok(_) = rdb::parse(reader, rdb::formatter::Protocol::new(Some(PathBuf::from(tmp_path))), rdb::filter::Simple::new()) else { return };
+        let Ok(resp_bytes) = std::fs::read(tmp_path) else { return };
+
+        let mut parser = Parser::new();
+        parser.read_buffer.extend_from_slice(&resp_bytes);
+        println!("{:?}", resp_bytes);
+        while let Some(mut resp) = parser.parse() {
+            if let Resp::Array(ref mut arr) = resp {
+                let cmd_name = arr.pop_front();
+                if let Some(cmd) = cmd_name {
+                    let cmd_name_bytes = Resp::get_bytes(&cmd).unwrap();
+                    let cmd_name = std::str::from_utf8(cmd_name_bytes).unwrap().to_lowercase();
+                    let args: Vec<String> = arr.iter()
+                        .filter_map(|a| Resp::get_bytes(a))
+                        .filter_map(|b| std::str::from_utf8(b).ok())
+                        .map(|s| s.to_string())
+                        .collect();
+                    if let Ok(command) = RedisCommand::from_parts(&cmd_name, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
+                        command_router::route(self, command, Uuid::new_v4());
+                    }
+                }
+            }
         }
     }
     fn is_write_command(cmd: &RedisCommand) -> bool {
