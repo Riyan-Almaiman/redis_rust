@@ -164,10 +164,9 @@ impl DB {
                     )
                     .write_format(&mut ack_buf);
 
-                    let slaves = self.slaves.clone();
+                    let mut slaves = self.slaves.clone();
 
                     tokio::spawn(async move {
-                        let mut acked_slaves = std::collections::HashSet::new();
                         let mut acked = 0;
                         let deadline = tokio::time::sleep(Duration::from_millis(timeout));
                         tokio::pin!(deadline);
@@ -184,15 +183,16 @@ impl DB {
                                 }
                                 Some((slave_id, ack_offset)) = ack_rx.recv() => {
                                     if ack_offset >= offset {
-                                        acked_slaves.insert(slave_id); // Duplicate IDs are ignored
+                                        slaves.remove_entry(&slave_id);
+                                        acked+=1
                                     }
-                                    if acked_slaves.len() as u64 >= replicas {
+                                    if acked as u64 >= replicas {
                                         break;
                                     }
                                 }
                             }
                         }
-                        send_cmd(response_tx, Resp::Integer(acked_slaves.len()));
+                        send_cmd(response_tx, Resp::Integer(acked));
                     });
                 }
                 CommandResult::RegisterSlave(resp) => match self.role {
