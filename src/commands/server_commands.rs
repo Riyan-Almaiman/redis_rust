@@ -6,7 +6,7 @@ use crate::role::Role;
 use crate::send::send_cmd;
 use crate::valuetype::ValueType;
 use uuid::Uuid;
-use crate::resp::Resp::BulkString;
+use crate::resp::Resp::{BulkString, Integer};
 
 pub struct ServerCommands;
 
@@ -24,7 +24,7 @@ impl ServerCommands {
         let mut resp = VecDeque::new();
         resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
         resp.push_back(BulkString(channel.as_bytes().to_vec()));
-        resp.push_back(BulkString(subscriber.len().to_string().as_bytes().to_vec()));
+        resp.push_back(Integer(subscriber.len()));
 
         CommandResult::Response(Resp::Array(resp))
     }
