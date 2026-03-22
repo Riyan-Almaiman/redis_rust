@@ -43,7 +43,7 @@ impl Role {
                 port,
                 replication_offset,
             } => format!(
-                "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}\r\n",
+                "{}\r\nslave_replid:{}\r\nslave_repl_offset:{}\r\n",
                 self.get_role(),
                 replication_id,
                 replication_offset

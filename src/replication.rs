@@ -81,10 +81,9 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
         ),
     )
     .await;
-
+    let mut offset: usize = 0;
     let mut buffer = [0u8; 4096];
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    let mut offset: usize = 0;
     loop {
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
@@ -104,6 +103,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                 resp.write_format(&mut buf);
                 buf.len()
             };
+            let resp_cmd = resp.clone();
+
             match resp {
                 Resp::SimpleString(s) => {
                     if s.starts_with(b"FULLRESYNC") {
@@ -120,7 +121,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     if arr.is_empty() {
                         continue;
                     }
-
                     let cmd_name = arr.pop_front().unwrap();
                     let cmd_name = match Resp::get_bytes(&cmd_name)
                         .and_then(|b| std::str::from_utf8(b).ok())
@@ -128,7 +128,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         Some(s) => s.to_lowercase(),
                         None => continue,
                     };
-
+                        println!("Command: {:?}", arr);
                     let args: Vec<String> = arr
                         .iter()
                         .filter_map(|a| Resp::get_bytes(a))
@@ -137,22 +137,26 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         .collect();
                     println!("FROM MASTER: {} {:?}", cmd_name, args);
 
-                    // if cmd_name == "replconf" {
-                    //     if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
-                    //         let response = Resp::Array(vec![
-                    //             Resp::BulkString(b"REPLCONF".to_vec()),
-                    //             Resp::BulkString(b"ACK".to_vec()),
-                    //             Resp::BulkString(offset.to_string().into_bytes()),
-                    //         ].into());
-                    //
-                    //         let mut buf = Vec::new();
-                    //         response.write_format(&mut buf);
-                    //         writer.write_all(&buf).await.unwrap();
-                    //
-                    //         offset += cmd_bytes;
-                    //         continue;
-                    //     }
-                    // }
+                    if cmd_name == "replconf" {
+                        if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
+                            let response = Resp::Array(vec![
+                                Resp::BulkString(b"REPLCONF".to_vec()),
+                                Resp::BulkString(b"ACK".to_vec()),
+                                Resp::BulkString(offset.to_string().into_bytes()),
+                            ].into());
+
+                            let mut buf = Vec::new();
+                            response.write_format(&mut buf);
+                            writer.write_all(&buf).await.unwrap();
+
+                            offset += cmd_bytes;
+                            continue;
+                        }
+                    }
+                    if cmd_name == "ping" {
+                        offset += cmd_bytes;
+                        continue;
+                    }
 
                     let command = match RedisCommand::from_parts(
                         &cmd_name,
@@ -168,25 +172,15 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     let client = Client {
                         client_id: Uuid::new_v4(),
                         command,
-                        resp_command: resp,
+                        resp_command: resp_cmd,
                         response_tx: tx.clone(),
                         timeout: None,
                     };
 
-                    if db_tx.send(client).await.is_err() {
-                        println!("DB channel closed");
-                        return;
-                    }
 
-                    // offset += cmd_bytes;
+                    offset += cmd_bytes;
 
-                    if cmd_name == "replconf" {
-                      if   let Some(res) = rx.recv().await {
-                          writer.write_all(res.as_slice()).await.unwrap();
 
-                      }
-
-                    }
                 }
 
                 _ => {}

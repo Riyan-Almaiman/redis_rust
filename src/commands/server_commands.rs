@@ -4,6 +4,8 @@ use crate::resp::Resp;
 use crate::resp::Resp::BulkString;
 use crate::valuetype::ValueType;
 use std::collections::VecDeque;
+use uuid::Uuid;
+use crate::role::Role;
 use crate::send::send_cmd;
 
 pub struct ServerCommands;
@@ -33,20 +35,26 @@ impl ServerCommands {
 
         CommandResult::Response(Resp::BulkString(sections.join("").into_bytes()))
     }
-    pub fn replconf(args: Vec<String>, db: &DB) -> CommandResult {
-        if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
-            return  CommandResult::Response(  Resp::Array(vec![
-                Resp::BulkString(b"REPLCONF".to_vec()),
-                Resp::BulkString(b"ACK".to_vec()),
-                Resp::BulkString(db.role.get_repl_offset().to_string().into_bytes()),
-            ].into()))
+    pub fn replconf(args: Vec<String>, db: &mut DB, client_id: Uuid) -> CommandResult {
+        match &db.role {
+            Role::Master{replication_id,replication_offset} => {
+
+                if args.len() >= 2 && args[0].to_lowercase() == "ack" && args[1].parse::<u64>().is_ok()  {
+                    let slave_offset: u64 = args[1].parse().unwrap_or(0);
+                    db.ack_waiters.retain(|tx| tx.send((client_id, slave_offset)).is_ok());
+                    return CommandResult::None;
+                }
+                else {
+                    return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
+
+                }
+
+            } Role::Slave {.. } => {
+               panic!("")
+
+            }
         }
-       else if args.len() >= 2 {
 
-           return  CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
-       }
-
-        CommandResult::None
     }
 
     pub fn psync(db: &DB) -> CommandResult {

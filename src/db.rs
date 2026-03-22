@@ -24,8 +24,8 @@ pub struct DB {
     pub blocking: BlockingManager,
     pub sender: mpsc::Sender<Client>,
     pub role: Role,
-    pub slaves: Vec<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
-    pub ack_waiters: Vec<mpsc::UnboundedSender<u64>>,
+    pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
+    pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
 }
 #[derive(Debug)]
 pub struct Client {
@@ -58,7 +58,7 @@ impl DB {
             receiver: pipeline_rx,
             role,
             ack_waiters: Vec::new(),
-            slaves: Vec::new(),
+            slaves: HashMap::new(),
             multi_list: HashMap::new(),
             blocking: BlockingManager {
                 lists: Default::default(),
@@ -80,11 +80,12 @@ impl DB {
 
     fn send_slaves(&mut self, resp: &Vec<u8>) -> u64 {
         self.role.increment_offset(resp.len());
-        self.slaves.retain(|slave| slave.send(resp.clone()).is_ok());
+        self.slaves
+            .retain(|_id, slave| slave.send(resp.clone()).is_ok());
         self.slaves.len() as u64
     }
     pub fn cleanup_dead_slaves(&mut self) -> u64 {
-        self.slaves.retain(|slave| !slave.is_closed());
+        self.slaves.retain(|_id, slave| !slave.is_closed());
         self.slaves.len() as u64
     }
     pub async fn start(&mut self) {
@@ -149,7 +150,7 @@ impl DB {
                         continue;
                     }
 
-                    let (ack_tx, mut ack_rx) = mpsc::unbounded_channel::<u64>();
+                    let (ack_tx, mut ack_rx) = mpsc::unbounded_channel::<(Uuid, u64)>();
                     self.ack_waiters.push(ack_tx);
 
                     let mut ack_buf = Vec::new();
@@ -166,36 +167,32 @@ impl DB {
                     let slaves = self.slaves.clone();
 
                     tokio::spawn(async move {
-                        let mut acked = 0u64;
+                        let mut acked_slaves = std::collections::HashSet::new();
+                        let mut acked = 0;
                         let deadline = tokio::time::sleep(Duration::from_millis(timeout));
                         tokio::pin!(deadline);
                         let mut interval = tokio::time::interval(Duration::from_millis(50));
 
-                        for slave in &slaves {
+                        for slave in slaves.values() {
                             let _ = slave.send(ack_buf.clone());
                         }
-
                         loop {
                             tokio::select! {
                                 _ = &mut deadline => break,
                                 _ = interval.tick() => {
-
-                                    for slave in &slaves {
-                                        let _ = slave.send(ack_buf.clone());
-                                    }
+                                    for slave in slaves.values() { let _ = slave.send(ack_buf.clone()); }
                                 }
-                                Some(ack_offset) = ack_rx.recv() => {
+                                Some((slave_id, ack_offset)) = ack_rx.recv() => {
                                     if ack_offset >= offset {
-                                        acked += 1;
+                                        acked_slaves.insert(slave_id); // Duplicate IDs are ignored
                                     }
-                                    if acked >= replicas {
+                                    if acked_slaves.len() as u64 >= replicas {
                                         break;
                                     }
                                 }
                             }
                         }
-
-                        send_cmd(response_tx, Resp::Integer(acked as usize));
+                        send_cmd(response_tx, Resp::Integer(acked_slaves.len()));
                     });
                 }
                 CommandResult::RegisterSlave(resp) => match self.role {
@@ -209,7 +206,7 @@ impl DB {
                         let _ = response_tx.send(header.into_bytes());
                         let _ = response_tx.send(rdb_bytes);
 
-                        self.slaves.push(response_tx);
+                        self.slaves.insert(client_id, response_tx);
                     }
                     Role::Slave { .. } => {
                         send_cmd(response_tx.clone(), resp);
