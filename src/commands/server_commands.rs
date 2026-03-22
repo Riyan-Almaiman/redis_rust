@@ -20,7 +20,9 @@ impl ServerCommands {
     }
     pub fn subscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
         let subscriber = db.subscribers.entry(client_id).or_insert_with(|| Vec::new());
-        subscriber.push(channel.clone());
+        if !subscriber.contains(&channel) {
+            subscriber.push(channel.clone());
+        }
         let mut resp = VecDeque::new();
         resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
         resp.push_back(BulkString(channel.as_bytes().to_vec()));
