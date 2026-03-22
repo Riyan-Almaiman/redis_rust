@@ -26,6 +26,8 @@ pub struct DB {
     pub role: Role,
     pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
+    pub dir: String,
+    pub file_name: String,
 }
 #[derive(Debug)]
 pub struct Client {
@@ -49,7 +51,7 @@ impl DB {
     pub fn execute_commands(&mut self, command: RedisCommand, client_id: Uuid) -> CommandResult {
         command_router::route(self, command, client_id)
     }
-    pub async fn new(role: Role) -> Self {
+    pub async fn new(role: Role, dir: String, file_name: String) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
 
         Self {
@@ -57,6 +59,8 @@ impl DB {
             sender: pipeline_tx,
             receiver: pipeline_rx,
             role,
+            dir,
+            file_name,
             ack_waiters: Vec::new(),
             slaves: HashMap::new(),
             multi_list: HashMap::new(),

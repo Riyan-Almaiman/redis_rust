@@ -55,13 +55,20 @@ async fn main() {
     let ip_address = "localhost".to_string();
     let mut server_port = "6379".to_string();
     let mut replica_master = String::new();
-
+    let mut dir = String::from("");
+    let mut file_name = String::from("db.rdb");
     for i in 0..args.len() {
         if args[i] == "--port" && i + 1 < args.len() {
             server_port = args[i + 1].clone();
         }
         if args[i] == "--replicaof" && i + 1 < args.len() {
             replica_master = args[i + 1].clone();
+        }
+        if args[i] == "--dir" && i + 1 < args.len() {
+            dir = args[i + 1].clone();
+        }
+        if args[i] == "--dbfilename" && i + 1 < args.len() {
+            file_name = args[i + 1].clone();
         }
     }
 
@@ -97,7 +104,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    let mut db = DB::new(role).await;
+    let mut db = DB::new(role, dir, file_name).await;
     let db_tx = db.sender.clone();
 
     // DB loop

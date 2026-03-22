@@ -1,8 +1,3 @@
-use std::collections::VecDeque;
-use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
-use tokio::sync::mpsc::UnboundedSender;
-use uuid::Uuid;
 use crate::blocking_list::{BlockingClient, BlockingList};
 use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::commands_parser::RedisCommand;
@@ -10,6 +5,11 @@ use crate::db::{Client, DB};
 use crate::resp::Resp;
 use crate::send::send_cmd;
 use crate::valuetype::ValueType;
+use std::collections::VecDeque;
+use std::time::Duration;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 pub struct BlockingManager {
     pub lists: BlockingList,
@@ -31,7 +31,8 @@ impl DB {
         };
 
         for wait in &client.waits {
-            self.blocking.streams
+            self.blocking
+                .streams
                 .waiters
                 .entry(wait.key.clone())
                 .or_default()

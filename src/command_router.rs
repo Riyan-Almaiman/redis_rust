@@ -12,13 +12,13 @@ pub enum CommandResult {
     Wait {
         timeout: u64,
         replicas: u64,
-        offset: u64
+        offset: u64,
     },
     BlockList {
         keys: Vec<Vec<u8>>,
         timeout: f64,
     },
-    RegisterSlave (Resp),
+    RegisterSlave(Resp),
     BlockStream {
         client_id: Uuid,
         streams: Vec<StreamWait>,
@@ -34,7 +34,11 @@ use crate::db::DB;
 
 pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
     match cmd {
-        RedisCommand::Wait {timeout, replicas_num} => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Wait {
+            timeout,
+            replicas_num,
+        } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Config(args) => ServerCommands::config(db, args),
         RedisCommand::Ping => ServerCommands::ping(),
         RedisCommand::Echo(data) => ServerCommands::echo(data),
         RedisCommand::Get(key) => StringCommands::get(db, key),

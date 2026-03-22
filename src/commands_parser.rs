@@ -1,4 +1,3 @@
-use crate::commands_parser::RedisCommand::XRange;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -76,16 +75,16 @@ pub enum RedisCommand {
     Info {
         section: Option<String>,
     },
-    REPLCONF (
-        Vec< String>),
+    REPLCONF(Vec<String>),
     PSYNC {
         replication_id: String,
         replication_offset: String,
     },
     Wait {
-    replicas_num: u64,
-    timeout: u64,
-}
+        replicas_num: u64,
+        timeout: u64,
+    },
+    Config (Vec<String>),
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
@@ -99,11 +98,19 @@ impl RedisCommand {
                     timeout: args[1].parse::<u64>().map_err(|_| "Invalid timeout")?,
                 })
             }
+            "config" => {
+                if args.len() < 1 {
+                    return Err("no params".into());
+                }
+                Ok(RedisCommand::Config(args.iter().map(|s| s.to_string()).collect()))
+            }
             "psync" => Ok(RedisCommand::PSYNC {
                 replication_id: "?".to_string(),
                 replication_offset: "-1".to_string(),
             }),
-            "replconf" => Ok(RedisCommand::REPLCONF(args.to_vec().iter().map(|s| s.to_string()).collect()) ),
+            "replconf" => Ok(RedisCommand::REPLCONF(
+                args.to_vec().iter().map(|s| s.to_string()).collect(),
+            )),
             "info" => {
                 if args.len() >= 1 {
                     Ok(RedisCommand::Info {

@@ -1,9 +1,8 @@
 use crate::resp::Resp;
-use std::collections::{HashMap, HashSet, VecDeque};
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot;
-use uuid::Uuid;
 use crate::send::send_cmd;
+use std::collections::{HashMap, VecDeque};
+use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
 #[derive(Default)]
 pub struct BlockingList {
@@ -43,10 +42,13 @@ impl BlockingList {
                 q.retain(|id| *id != client_id);
             }
 
-            send_cmd(client.response_tx, Resp::Array(VecDeque::from(vec![
-                Resp::BulkString(key.to_vec()),
-                Resp::BulkString(value),
-            ])));
+            send_cmd(
+                client.response_tx,
+                Resp::Array(VecDeque::from(vec![
+                    Resp::BulkString(key.to_vec()),
+                    Resp::BulkString(value),
+                ])),
+            );
 
             if let Some(queue) = self.waiters.get(key) {
                 if queue.is_empty() {

@@ -15,15 +15,23 @@ pub enum Role {
 impl Role {
     pub fn increment_offset(&mut self, bytes: usize) {
         match self {
-            Role::Master { replication_offset, .. } => *replication_offset += bytes as u64,
-            Role::Slave { replication_offset, .. } => *replication_offset += bytes as u64,
+            Role::Master {
+                replication_offset, ..
+            } => *replication_offset += bytes as u64,
+            Role::Slave {
+                replication_offset, ..
+            } => *replication_offset += bytes as u64,
         }
     }
 
     pub fn set_offset(&mut self, offset: u64) {
         match self {
-            Role::Master { replication_offset, .. } => *replication_offset = offset,
-            Role::Slave { replication_offset, .. } => *replication_offset = offset,
+            Role::Master {
+                replication_offset, ..
+            } => *replication_offset = offset,
+            Role::Slave {
+                replication_offset, ..
+            } => *replication_offset = offset,
         }
     }
     pub fn get_replication(&self) -> String {

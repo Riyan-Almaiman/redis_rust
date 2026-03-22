@@ -127,7 +127,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         Some(s) => s.to_lowercase(),
                         None => continue,
                     };
-                        println!("Command: {:?}", arr);
+                    println!("Command: {:?}", arr);
                     let args: Vec<String> = arr
                         .iter()
                         .filter_map(|a| Resp::get_bytes(a))
@@ -138,11 +138,14 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
 
                     if cmd_name == "replconf" {
                         if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {
-                            let response = Resp::Array(vec![
-                                Resp::BulkString(b"REPLCONF".to_vec()),
-                                Resp::BulkString(b"ACK".to_vec()),
-                                Resp::BulkString(offset.to_string().into_bytes()),
-                            ].into());
+                            let response = Resp::Array(
+                                vec![
+                                    Resp::BulkString(b"REPLCONF".to_vec()),
+                                    Resp::BulkString(b"ACK".to_vec()),
+                                    Resp::BulkString(offset.to_string().into_bytes()),
+                                ]
+                                .into(),
+                            );
 
                             let mut buf = Vec::new();
                             response.write_format(&mut buf);
@@ -181,8 +184,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     }
 
                     offset += cmd_bytes;
-
-
                 }
 
                 _ => {}

@@ -3,7 +3,6 @@ use crate::parser::CurrentState::{
     ReadingError, ReadingInteger, ReadingSimpleString,
 };
 use crate::resp::Resp;
-use crate::resp::Resp::Array;
 use std::collections::VecDeque;
 
 pub struct Parser {
@@ -56,70 +55,77 @@ impl Parser {
     pub fn parse(&mut self) -> Option<Resp> {
         while self.current_index < self.read_buffer.len() {
             match self.current_command.current_state {
-                    CurrentState::None => {
-                        let byte = self.read_buffer[self.current_index];
+                CurrentState::None => {
+                    let byte = self.read_buffer[self.current_index];
 
-                        match byte {
-                            b'*' => {
-                                self.current_command.current_state = ReadingArrayElementCount;
-                                self.current_index += 1;
+                    match byte {
+                        b'*' => {
+                            self.current_command.current_state = ReadingArrayElementCount;
+                            self.current_index += 1;
+                        }
+
+                        b'+' => {
+                            self.current_index += 1;
+                            if let Some(s) = self.read_until_clrf() {
+                                self.reset();
+                                return Some(Resp::SimpleString(s));
+                            } else {
+                                return None;
                             }
+                        }
 
-                            b'+' => {
-                                self.current_index += 1;
-                                if let Some(s) = self.read_until_clrf() {
-                                    self.reset();
-                                    return Some(Resp::SimpleString(s));
-                                } else {
-                                    return None;
-                                }
-                            }
+                        b'$' => {
+                            let saved = self.current_index;
+                            self.current_index += 1;
 
-                            b'$' => {
-                                let saved = self.current_index;
-                                self.current_index += 1;
-
-                                let len_bytes = match self.read_until_clrf() {
-                                    Some(b) => b,
-                                    None => { self.current_index = saved; return None; }
-                                };
-                                let len = match Self::vec_to_i64(&len_bytes) {
-                                    Some(n) => n as usize,
-                                    None => { self.current_index = saved; return None; }
-                                };
-
-                                if self.read_buffer.len() < self.current_index + len  {
+                            let len_bytes = match self.read_until_clrf() {
+                                Some(b) => b,
+                                None => {
                                     self.current_index = saved;
                                     return None;
                                 }
+                            };
+                            let len = match Self::vec_to_i64(&len_bytes) {
+                                Some(n) => n as usize,
+                                None => {
+                                    self.current_index = saved;
+                                    return None;
+                                }
+                            };
 
-                                let data = self.read_buffer[self.current_index..self.current_index + len].to_vec();
-                                self.current_index += len ;
-                                self.reset();
-                                return Some(Resp::BulkString(data));
+                            if self.read_buffer.len() < self.current_index + len {
+                                self.current_index = saved;
+                                return None;
                             }
 
-                            b':' => {
-                                self.current_index += 1;
-                                let num = self.read_until_clrf()?;
-                                let val = Self::vec_to_i64(&num)? as usize;
-
-                                self.reset();
-                                return Some(Resp::Integer(val));
-                            }
-
-                            b'-' => {
-                                self.current_index += 1;
-                                let err = self.read_until_clrf()?;
-
-                                self.reset();
-                                return Some(Resp::Error(err));
-                            }
-
-                            _ => return None,
+                            let data = self.read_buffer
+                                [self.current_index..self.current_index + len]
+                                .to_vec();
+                            self.current_index += len;
+                            self.reset();
+                            return Some(Resp::BulkString(data));
                         }
-                    }
 
+                        b':' => {
+                            self.current_index += 1;
+                            let num = self.read_until_clrf()?;
+                            let val = Self::vec_to_i64(&num)? as usize;
+
+                            self.reset();
+                            return Some(Resp::Integer(val));
+                        }
+
+                        b'-' => {
+                            self.current_index += 1;
+                            let err = self.read_until_clrf()?;
+
+                            self.reset();
+                            return Some(Resp::Error(err));
+                        }
+
+                        _ => return None,
+                    }
+                }
 
                 _ => {
                     self.current_command.current_state = self.parse_command_array();
@@ -184,9 +190,15 @@ impl Parser {
         let number = match num {
             Some(n) => match Self::vec_to_i64(&n) {
                 Some(n) => n,
-                None => { self.current_index = saved; return Incomplete; },
+                None => {
+                    self.current_index = saved;
+                    return Incomplete;
+                }
             },
-            None => { self.current_index = saved; return Incomplete; },
+            None => {
+                self.current_index = saved;
+                return Incomplete;
+            }
         };
         if self.read_buffer.len() < (self.current_index + number as usize + 2) {
             return Incomplete;
@@ -195,7 +207,7 @@ impl Parser {
             || self.read_buffer[self.current_index + number as usize + 1] != b'\n'
         {
             return InvalidCommand;
-        }//f
+        } //f
         let mut count = 0;
         while self.current_index + count < self.read_buffer.len() {
             string.push(self.read_buffer[self.current_index + count]);
