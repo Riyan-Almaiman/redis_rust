@@ -35,7 +35,19 @@ impl ServerCommands {
     pub fn echo(data: Vec<u8>) -> CommandResult {
         CommandResult::Response(Resp::BulkString(data))
     }
+    pub fn subscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
 
+        let subscriber = db.subscribers.entry(client_id).or_insert_with(|| Vec::new());
+        if !subscriber.contains(&channel) {
+            subscriber.push(channel.clone());
+        }
+        let mut resp = VecDeque::new();
+        resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
+        resp.push_back(BulkString(channel.as_bytes().to_vec()));
+        resp.push_back(Integer(subscriber.len()));
+
+        CommandResult::Response(Resp::Array(resp))
+    }
     pub fn info(db: &DB, section: Option<String>) -> CommandResult {
         let mut sections = Vec::new();
 
