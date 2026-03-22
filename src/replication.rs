@@ -177,7 +177,10 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         timeout: None,
                     };
 
-
+                    if let Err(e) = db_tx.send(client).await {
+                        println!("Failed to send command to DB: {}", e);
+                    }
+                    
                     offset += cmd_bytes;
 
 
