@@ -14,28 +14,28 @@ impl ServerCommands {
     pub fn ping() -> CommandResult {
         CommandResult::Response(Resp::SimpleString(b"PONG".to_vec()))
     }
-    pub fn publish(db:&mut  DB, channel: String, message: String) -> CommandResult {
-        let count = db.subscribers.values()
-            .filter(|channels| channels.contains(&channel))
-            .count();
-
+    pub fn publish(db: &mut DB, channel: String, message: String) -> CommandResult {
+        let mut count = 0;
+        for (client_id, channels) in &db.subscribers {
+            if channels.contains(&channel) {
+                if let Some(tx) = db.subscriber_txs.get(client_id) {
+                    let mut resp = Vec::new();
+                    Resp::Array(vec![
+                        Resp::BulkString(b"message".to_vec()),
+                        Resp::BulkString(channel.as_bytes().to_vec()),
+                        Resp::BulkString(message.as_bytes().to_vec()),
+                    ].into()).write_format(&mut resp);
+                    let _ = tx.send(resp);
+                    count += 1;
+                }
+            }
+        }
         CommandResult::Response(Resp::Integer(count))
     }
     pub fn echo(data: Vec<u8>) -> CommandResult {
         CommandResult::Response(Resp::BulkString(data))
     }
-    pub fn subscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
-        let subscriber = db.subscribers.entry(client_id).or_insert_with(|| Vec::new());
-        if !subscriber.contains(&channel) {
-            subscriber.push(channel.clone());
-        }
-        let mut resp = VecDeque::new();
-        resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
-        resp.push_back(BulkString(channel.as_bytes().to_vec()));
-        resp.push_back(Integer(subscriber.len()));
 
-        CommandResult::Response(Resp::Array(resp))
-    }
     pub fn info(db: &DB, section: Option<String>) -> CommandResult {
         let mut sections = Vec::new();
 

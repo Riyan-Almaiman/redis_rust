@@ -40,7 +40,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
         } => ServerCommands::wait(db, timeout, replicas_num),
         RedisCommand::Config(args) => ServerCommands::config(db, args),
         RedisCommand::Ping => ServerCommands::ping(),
-        RedisCommand::Subscribe(channel) => ServerCommands::subscribe(db, channel, client_id),
+        RedisCommand::Subscribe(channel) => panic!(),
         RedisCommand::Publish{channel, message} => ServerCommands::publish(db, channel, message),
 
         RedisCommand::Keys(key) => StringCommands::keys(db, key),

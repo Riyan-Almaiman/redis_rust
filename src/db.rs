@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 use crate::parser::Parser;
-use crate::resp::Resp::BulkString;
+use crate::resp::Resp::{BulkString, Integer};
 
 pub struct Master {
     pub replication_id: String,
@@ -34,7 +34,7 @@ pub struct DB {
     pub dir: String,
     pub file_name: String,
     pub subscribers: HashMap<Uuid, Vec<String>>,
-
+    pub subscriber_txs: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
 
 }
 #[derive(Debug)]
@@ -77,6 +77,7 @@ impl DB {
                 lists: Default::default(),
                 streams: Default::default(),
             },
+            subscriber_txs: HashMap::new(),
         };
 
         db.load_rdb(&format!("{}/{}", db.dir, db.file_name));
@@ -171,7 +172,20 @@ impl DB {
                         send_cmd(response_tx, Resp::Array(VecDeque::from(vec![BulkString("pong".as_bytes().to_vec()), BulkString("".as_bytes().to_vec())])));
                         continue
                     }
-                    RedisCommand::Subscribe(_) => {}
+                    RedisCommand::Subscribe(channel) => {
+                        let subscriber = self.subscribers.entry(client_id).or_insert_with(|| Vec::new());
+                        if !subscriber.contains(&channel) {
+                            subscriber.push(channel.clone());
+                        }
+                        let mut resp = VecDeque::new();
+                        resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
+                        resp.push_back(BulkString(channel.as_bytes().to_vec()));
+                        resp.push_back(Integer(subscriber.len()));
+                        self.subscriber_txs.insert(client_id, response_tx.clone());
+
+                        send_cmd(response_tx, Resp::Array(resp));
+                        continue
+                    }
 
                     _ => {
                         let res = format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
