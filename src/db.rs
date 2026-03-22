@@ -178,9 +178,9 @@ impl DB {
                         loop {
                             tokio::select! {
                                 _ = &mut deadline => break,
-                                _ = interval.tick() => {
-                                    for slave in slaves.values() { let _ = slave.send(ack_buf.clone()); }
-                                }
+                                // _ = interval.tick() => {
+                                //     for slave in slaves.values() { let _ = slave.send(ack_buf.clone()); }
+                                // }
                                 Some((slave_id, ack_offset)) = ack_rx.recv() => {
                                     if ack_offset >= offset {
                                         slaves.remove_entry(&slave_id);
