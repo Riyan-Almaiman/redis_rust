@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use crate::commands::server_commands::ServerCommands;
 use crate::parser::Parser;
 use crate::resp::Resp::{BulkString, Integer};
 
@@ -186,7 +187,22 @@ impl DB {
                         send_cmd(response_tx, Resp::Array(resp));
                         continue
                     }
+                    RedisCommand::Unsubscribe(channel) => {
+                        if let Some(channels) = self.subscribers.get_mut(&client_id) {
+                            channels.retain(|c| c != channel);
+                        }
+                        let remaining = self.subscribers.get(&client_id).map_or(0, |c| c.len());
 
+                        let  response = Resp::Array(vec![
+                            Resp::BulkString(b"unsubscribe".to_vec()),
+                            Resp::BulkString(channel.clone().into_bytes()),
+                            Resp::Integer(remaining),
+                        ].into());
+
+                        send_cmd(response_tx, response);
+
+                        continue
+                    }
                     _ => {
                         let res = format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
                         send_cmd(response_tx, Resp::Error(res.as_bytes().to_vec()));

@@ -39,6 +39,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             timeout,
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Unsubscribe(channel) => ServerCommands::unsubscribe(db, channel, client_id),
         RedisCommand::Config(args) => ServerCommands::config(db, args),
         RedisCommand::Ping => ServerCommands::ping(),
         RedisCommand::Subscribe(channel) => ServerCommands::subscribe(db, channel, client_id),

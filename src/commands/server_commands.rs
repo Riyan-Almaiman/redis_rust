@@ -32,6 +32,22 @@ impl ServerCommands {
         }
         CommandResult::Response(Resp::Integer(count))
     }
+    pub fn unsubscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
+
+            if let Some(channels) = db.subscribers.get_mut(&client_id) {
+                channels.retain(|c| c != &channel);
+            }
+            let remaining = db.subscribers.get(&client_id).map_or(0, |c| c.len());
+
+           let  response = Resp::Array(vec![
+                Resp::BulkString(b"unsubscribe".to_vec()),
+                Resp::BulkString(channel.into_bytes()),
+                Resp::Integer(remaining),
+            ].into());
+
+
+        CommandResult::Response(response)
+    }
     pub fn echo(data: Vec<u8>) -> CommandResult {
         CommandResult::Response(Resp::BulkString(data))
     }

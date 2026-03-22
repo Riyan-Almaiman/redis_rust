@@ -84,19 +84,25 @@ pub enum RedisCommand {
         replicas_num: u64,
         timeout: u64,
     },
-    Config (Vec<String>),
+    Config(Vec<String>),
 
     Keys(String),
     Subscribe(String),
-    Publish{
+    Publish {
         channel: String,
         message: String,
-    }
-
+    },
+    Unsubscribe(String),
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+            "unsubscribe" => {
+                if args.len() < 1 {
+                    return Err("no params".into());
+                }
+                Ok(RedisCommand::Unsubscribe(args[0].to_owned()))
+            }
             "keys" => {
                 if args.len() < 1 {
                     return Err("no params".into());
@@ -107,7 +113,10 @@ impl RedisCommand {
                 if args.len() < 2 {
                     return Err("no params".into());
                 }
-                Ok(RedisCommand::Publish { channel: args[0].to_owned(), message: args[1].to_owned() })
+                Ok(RedisCommand::Publish {
+                    channel: args[0].to_owned(),
+                    message: args[1].to_owned(),
+                })
             }
             "subscribe" => {
                 if args.len() < 1 {
@@ -128,7 +137,9 @@ impl RedisCommand {
                 if args.len() < 1 {
                     return Err("no params".into());
                 }
-                Ok(RedisCommand::Config(args.iter().map(|s| s.to_string()).collect()))
+                Ok(RedisCommand::Config(
+                    args.iter().map(|s| s.to_string()).collect(),
+                ))
             }
             "psync" => Ok(RedisCommand::PSYNC {
                 replication_id: "?".to_string(),
@@ -447,6 +458,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",
             RedisCommand::Incr { .. } => "incr",
