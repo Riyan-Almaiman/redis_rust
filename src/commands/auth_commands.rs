@@ -12,8 +12,10 @@ impl AuthCommands {
             "getuser"  => {
                 let user = db.users.get("default");
                 if let Some(user) = user {
-            
-                    CommandResult::Response(Resp::from_strings(user.flags.iter().cloned().collect()))
+                    let flags = Resp::from_strings(user.flags.iter().cloned().collect());
+                    let flag = Resp::BulkString("flags".as_bytes().to_vec());
+                    let response = Resp::Array(vec![flag, flags].into());
+                    CommandResult::Response(response)
                 } else {
                     CommandResult::Response(Resp::Error(b"ERR no such user".to_vec()))
                 }
