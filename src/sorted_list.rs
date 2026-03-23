@@ -28,8 +28,9 @@ impl SortedList {
     /// Insert/update numeric score
     pub fn zadd(&mut self, name: String, score: f64) -> bool {
         let score_ord = OrderedFloat(score);
-
+        let mut is_new = true;
         if let Some(&old_score) = self.values.get(&name) {
+            is_new = false; 
             if old_score == score_ord {
                 return false;
             }
@@ -43,7 +44,7 @@ impl SortedList {
 
         self.scores.entry(score_ord).or_default().insert(name.clone());
         self.values.insert(name, score_ord);
-        true
+        is_new
     }
 
     /// Insert/update geo point (doesn't change numeric score unless given explicitly)
