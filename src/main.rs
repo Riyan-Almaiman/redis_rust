@@ -55,7 +55,7 @@ use rdb::{RdbError, RdbResult};
 async fn main() {
     let args: Vec<String> = env::args().collect();
     const EMPTY_RDB_BASE64: &str = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
-    let ip_address = "localhost".to_string();
+    let ip_address = "127.0.0.1".to_string();
     let mut server_port = "6379".to_string();
     let mut replica_master = String::new();
     let mut dir = String::from("");

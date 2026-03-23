@@ -34,6 +34,7 @@ impl SortedList {
                 set.remove(&name);
                 if set.is_empty() { self.scores.remove(&old_score); }
             }
+            return false 
         }
         self.scores.entry(score_ord).or_default().insert(name.clone());
         self.values.insert(name, score_ord);
