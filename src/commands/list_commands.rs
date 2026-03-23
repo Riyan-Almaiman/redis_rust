@@ -21,6 +21,16 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+    pub fn zrange(db: &mut DB, key: String, start: usize, end: usize) -> CommandResult {
+        let response = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => Resp::Array(sorted_list.zrange(start, end)),
+                _ => Resp::NullArray,
+            },
+            None => Resp::Array(VecDeque::new()),
+        };
+        CommandResult::Response(response)
+    }
     pub fn zrank(db: &mut DB, key: String, value: String) -> CommandResult {
         let response = match db.database.get(key.as_bytes()) {
             Some(kv) => match &kv.value {

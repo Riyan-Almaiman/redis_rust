@@ -102,10 +102,29 @@ pub enum RedisCommand {
         key: String,
         values:  String,
     },
+    Zrange {
+        key: String,
+        start: usize,
+        end: usize,
+    },
+    
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "zrange" => {
+                if args.len() < 3 {
+                    return Err("zrange requires key, start, end".into());
+                }
+            
+                let start = args[1].parse::<usize>().map_err(|_| "Invalid start")?;
+                let end = args[2].parse::<usize>().map_err(|_| "Invalid end")?;
+                Ok(RedisCommand::Zrange {
+                    key: args[0].to_string(),
+                    start,
+                    end,
+                })
+            }
                 "zrank" => {
                 // let mut values = Vec::new();
 
@@ -503,8 +522,10 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
-            Self::Zrank { key: _, values: _ } => "zrank",
+            RedisCommand::Zrange { key, start, end } => "zrange",
+            RedisCommand::Zrank { key: _, values: _ } => "zrank",
             RedisCommand::Zadd { key: _, values: _ }=>"zadd",
+            RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",
             RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",

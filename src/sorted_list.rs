@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use ordered_float::OrderedFloat;
+
+use crate::resp::Resp;
 
 pub struct SortedList {
     scores: BTreeMap<OrderedFloat<f64>, BTreeSet<String>>, // score -> set of values
@@ -95,6 +97,38 @@ pub fn rank_of(&self, value: &str) -> Option<usize> {
                 }
             }
         }
+        result
+    }
+  
+   pub fn zrange(&self, start: usize, end: usize) -> VecDeque<Resp> {
+        let mut result = VecDeque::new();
+        if start > end {
+            return result; // empty range
+        }
+
+        let mut idx = 0;
+
+        for (_score, set) in &self.scores {
+            let set_len = set.len();
+            // Skip entire set if range is before start
+            if idx + set_len <= start {
+                idx += set_len;
+                continue;
+            }
+
+            // Collect only the elements in range
+            for v in set {
+                if idx >= start && idx <= end {
+                    result.push_back(Resp::BulkString(v.clone().into())); // push owned String
+                }
+                idx += 1;
+                if idx > end {
+                    return result; // collected enough
+                }
+            }
+        }
+        
+       
         result
     }
 

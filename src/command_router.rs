@@ -40,6 +40,8 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
         RedisCommand::Zrank { key, values } => ListCommands::zrank(db, key, values),
+        RedisCommand::Zrange { key, start, end } => ListCommands::zrange(db, key, start, end),
+         RedisCommand::Zadd { key, values } => ListCommands::zadd(db, key, values),
         RedisCommand::Unsubscribe(channel) => ServerCommands::unsubscribe(db, channel, client_id),
         RedisCommand::Config(args) => ServerCommands::config(db, args),
         RedisCommand::Ping => ServerCommands::ping(),
