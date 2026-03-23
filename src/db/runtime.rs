@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::commands::CommandResult;
 use crate::commands_parser::RedisCommand;
-use crate::db::{ClientRequest, ClientSession, DB};
+use crate::db::{ClientRequest, DB};
 use crate::resp::Resp;
 use crate::resp::Resp::{BulkString, Integer};
 use crate::role::Role;
@@ -272,22 +272,26 @@ impl DB {
 
     pub async fn start(&mut self) {
         while let Some(request) = self.receiver.recv().await {
-            let ClientRequest {
-                command,
-                response_tx,
-                client_id,
-                resp_command,
-                ..
-            } = request;
-            let session = self.sessions.get(&client_id);
-
-            if session.is_none() {
-                 let mut session = ClientSession::default();
-                 if self.authenticate_user("default", "", client_id) {
-                        session.authenticated_user = Some("default".to_string());
+            let (command, response_tx, client_id, resp_command) = match request {
+                ClientRequest::Connected {
+                    client_id,
+                    response_tx,
+                } => {
+                    self.initialize_session(client_id, response_tx);
+                    continue;
                 }
-                self.sessions.insert(client_id, session);
+                ClientRequest::Command {
+                    command,
+                    response_tx,
+                    client_id,
+                    resp_command,
+                } => (command, response_tx, client_id, resp_command),
+            };
+
+            if !self.sessions.contains_key(&client_id) {
+                continue;
             }
+
             if self.handle_subscribed_client(client_id, &command, &response_tx) {
                 continue;
             }

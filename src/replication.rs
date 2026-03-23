@@ -84,6 +84,20 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRe
     let mut offset: usize = 0;
     let mut buffer = [0u8; 4096];
     let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let replica_client_id = Uuid::new_v4();
+
+    if db_tx
+        .send(ClientRequest::Connected {
+            client_id: replica_client_id,
+            response_tx: tx.clone(),
+        })
+        .await
+        .is_err()
+    {
+        println!("Failed to initialize replication session");
+        return;
+    }
+
     loop {
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
@@ -170,8 +184,8 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRe
                         }
                     };
 
-                    let client = ClientRequest {
-                        client_id: Uuid::new_v4(),
+                    let client = ClientRequest::Command {
+                        client_id: replica_client_id,
                         command,
                         resp_command: resp_cmd,
                         response_tx: tx.clone(),

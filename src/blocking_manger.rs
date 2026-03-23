@@ -46,7 +46,7 @@ impl DB {
                 let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
                 let _ = sender_clone
-                    .send(ClientRequest {
+                    .send(ClientRequest::Command {
                         client_id,
                         response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),
@@ -78,7 +78,7 @@ impl DB {
                 tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
                 let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 let _ = sender_clone
-                    .send(ClientRequest {
+                    .send(ClientRequest::Command {
                         client_id: id,
                         response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),

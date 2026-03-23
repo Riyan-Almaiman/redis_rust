@@ -145,6 +145,18 @@ async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client
             let _ = writer.write_all(&data).await;
         }
     });
+
+    if connection_tx
+        .send(ClientRequest::Connected {
+            client_id: uuid,
+            response_tx: conn_tx.clone(),
+        })
+        .await
+        .is_err()
+    {
+        return;
+    }
+
     loop {
         let n = match reader.read(&mut buffer).await {
             Ok(0) => return,
@@ -183,7 +195,7 @@ async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client
             }
         }
         for (i, parsed_command) in commands.iter().enumerate() {
-            let client_req = ClientRequest {
+            let client_req = ClientRequest::Command {
                 client_id: uuid,
                 response_tx: conn_tx.clone(),
                 resp_command: resp_commands[i].clone(),

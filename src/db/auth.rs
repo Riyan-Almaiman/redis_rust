@@ -1,9 +1,29 @@
 use sha2::Digest;
 use uuid::Uuid;
+use tokio::sync::mpsc;
 
 use crate::{db::{ClientSession, DB}, user::{Flag, User}};
 
 impl DB {
+    pub fn initialize_session(
+        &mut self,
+        client_id: Uuid,
+        response_tx: mpsc::UnboundedSender<Vec<u8>>,
+    ) {
+        if let Some(session) = self.sessions.get_mut(&client_id) {
+            session.response_tx = Some(response_tx);
+            return;
+        }
+
+        let session = ClientSession {
+            client_id,
+            response_tx: Some(response_tx),
+            ..ClientSession::default()
+        };
+        self.sessions.insert(client_id, session);
+        let _ = self.authenticate_user("default", "", client_id);
+    }
+
     pub fn authenticated_user(&self, client_id: Uuid) -> Option<&str> {
         self.sessions
             .get(&client_id)

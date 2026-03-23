@@ -45,12 +45,19 @@ pub struct DB {
     pub users: HashMap<String, User>,
     pub file_name: String,
 }
+
 #[derive(Debug)]
-pub struct ClientRequest {
-    pub client_id: Uuid,
-    pub response_tx: mpsc::UnboundedSender<Vec<u8>>,
-    pub resp_command: Resp,
-    pub command: RedisCommand,
+pub enum ClientRequest {
+    Connected {
+        client_id: Uuid,
+        response_tx: mpsc::UnboundedSender<Vec<u8>>,
+    },
+    Command {
+        client_id: Uuid,
+        response_tx: mpsc::UnboundedSender<Vec<u8>>,
+        resp_command: Resp,
+        command: RedisCommand,
+    },
 }
 
 pub struct KeyValue {
