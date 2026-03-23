@@ -19,7 +19,7 @@ impl AuthCommands {
                 if let Some(username) = username {
                     CommandResult::Response(Resp::BulkString(username.as_bytes().to_vec()))
                 } else {
-                    CommandResult::Response(Resp::BulkString(b"NOAUTH Authentication required.".to_vec()))
+                    CommandResult::Response(Resp::Error(b"NOAUTH Authentication required.".to_vec()))
                 }
             }
             "getuser" => {
