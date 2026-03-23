@@ -21,6 +21,16 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+    pub fn zcard(db: &mut DB, key: String) -> CommandResult {
+        let response = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => sorted_list.values.len(),
+                _ => 0,
+            },
+            None => 0,
+        };
+        CommandResult::Response(Resp::Integer(response ))
+    }
     pub fn zrange(db: &mut DB, key: String, start: isize, end: isize) -> CommandResult {
         let response = match db.database.get(key.as_bytes()) {
             Some(kv) => match &kv.value {

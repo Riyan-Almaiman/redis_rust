@@ -39,6 +39,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             timeout,
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Zcard(key) => ListCommands::zcard(db, key),
         RedisCommand::Zrank { key, values } => ListCommands::zrank(db, key, values),
         RedisCommand::Zrange { key, start, end } => ListCommands::zrange(db, key, start, end),
          RedisCommand::Zadd { key, values } => ListCommands::zadd(db, key, values),
@@ -47,7 +48,6 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
         RedisCommand::Ping => ServerCommands::ping(),
         RedisCommand::Subscribe(channel) => ServerCommands::subscribe(db, channel, client_id),
         RedisCommand::Publish{channel, message} => ServerCommands::publish(db, channel, message),
-        RedisCommand::Zadd{key, values} => ListCommands::zadd(db, key, values),
 
         RedisCommand::Keys(key) => StringCommands::keys(db, key),
 

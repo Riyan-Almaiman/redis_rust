@@ -107,11 +107,18 @@ pub enum RedisCommand {
         start: isize,
         end: isize,
     },
+    Zcard(String),
     
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "zcard" => {
+                if args.len() < 1 {
+                    return Err("zcard requires a key".into());
+                }
+                Ok(RedisCommand::Zcard(args[0].to_string()))
+            }
                 "zrange" => {
                 if args.len() < 3 {
                     return Err("zrange requires key, start, end".into());
@@ -522,6 +529,8 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+
+            RedisCommand::Zcard(_) => "zcard",
             RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",
             RedisCommand::Zrank { key: _, values: _ } => "zrank",
             RedisCommand::Zadd { key: _, values: _ }=>"zadd",

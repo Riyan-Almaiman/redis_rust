@@ -4,8 +4,8 @@ use ordered_float::OrderedFloat;
 use crate::resp::Resp;
 
 pub struct SortedList {
-    scores: BTreeMap<OrderedFloat<f64>, BTreeSet<String>>, // score -> set of values
-    values: HashMap<String, OrderedFloat<f64>>,           // value -> score
+    pub scores: BTreeMap<OrderedFloat<f64>, BTreeSet<String>>, // score -> set of values
+    pub values: HashMap<String, OrderedFloat<f64>>,           // value -> score
 }
 
 impl SortedList {
