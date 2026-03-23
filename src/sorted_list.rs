@@ -28,14 +28,19 @@ impl SortedList {
     /// Insert/update numeric score
     pub fn zadd(&mut self, name: String, score: f64) -> bool {
         let score_ord = OrderedFloat(score);
+
         if let Some(&old_score) = self.values.get(&name) {
-            if old_score == score_ord { return false; }
+            if old_score == score_ord {
+                return false;
+            }
             if let Some(set) = self.scores.get_mut(&old_score) {
                 set.remove(&name);
-                if set.is_empty() { self.scores.remove(&old_score); }
+                if set.is_empty() {
+                    self.scores.remove(&old_score);
+                }
             }
-            return false 
         }
+
         self.scores.entry(score_ord).or_default().insert(name.clone());
         self.values.insert(name, score_ord);
         true
