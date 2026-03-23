@@ -1,4 +1,5 @@
 use crate::blocking_stream::StreamWait;
+use crate::commands::geo_commands::GeoCommands;
 use crate::commands::list_commands::ListCommands;
 use crate::commands::server_commands::ServerCommands;
 use crate::commands::stream_commands::StreamCommands;
@@ -40,6 +41,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
         RedisCommand::Zrem { key, value } => ListCommands::zrem(db, key, value),
+        RedisCommand::GeoAdd { key, longitude, latitude, member }   => GeoCommands::geoadd(db, key, longitude, latitude, member),
         RedisCommand::Zscore { key, value } => ListCommands::zscore(db, key, value),
         RedisCommand::Zcard(key) => ListCommands::zcard(db, key),
         RedisCommand::Zrank { key, values } => ListCommands::zrank(db, key, values),

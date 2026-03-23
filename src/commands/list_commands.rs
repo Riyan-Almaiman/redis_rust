@@ -21,6 +21,7 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+
     pub fn zrem(db: &mut DB, key: String, value: String) -> CommandResult {
         let response = match db.database.get_mut(key.as_bytes()) {
             Some(kv) => match &mut kv.value {

@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use ordered_float::OrderedFloat;
 
+use crate::geo_list::GeoList;
 use crate::lists::List;
 use crate::sorted_list::SortedList;
 use crate::stream::Stream;
@@ -10,7 +11,8 @@ pub enum ValueType {
     String(Vec<u8>),
     List(List),
     Stream(Stream),
-    SortedList(SortedList)
+    SortedList(SortedList),
+    GeoList(GeoList),
 
 }
 impl ValueType {
@@ -24,6 +26,8 @@ impl ValueType {
             ValueType::String(_) => b"string",
             ValueType::List(_) => b"list",
             ValueType::Stream(_) => b"stream",
+            ValueType::SortedList(_) => b"sortedlist",
+            ValueType::GeoList(_) => b"geolist",
             _ => b"none",
         }
     }

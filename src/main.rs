@@ -7,7 +7,7 @@ mod resp;
 mod parser;
 
 mod commands_parser;
-
+mod geo_list;
 mod lists;
 mod sorted_list;
 mod blocking_list;
@@ -21,7 +21,6 @@ mod role;
 mod send;
 mod stream;
 mod valuetype;
-
 use base64::Engine;
 use core::panic;
 use rand::{Rng, RngExt, TryRng};

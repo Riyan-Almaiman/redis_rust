@@ -115,11 +115,29 @@ pub enum RedisCommand {
     Zrem {
         key: String,
         value: String,
+    },
+    GeoAdd {
+        key: String,
+        longitude: f64,
+        latitude: f64,
+        member: String,
     }
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "geoadd" => {
+                if args.len() < 4 {
+                    return Err("GEOADD requires key, longitude, latitude, and member".into());
+                }
+                let longitude = args[1].parse::<f64>().map_err(|_| "Invalid longitude")?;
+                let latitude = args[2].parse::<f64>().map_err(|_| "Invalid latitude")?;
+                Ok(RedisCommand::GeoAdd {
+                    key: args[0].to_string(),
+                    longitude,
+                    latitude,
+                    member: args[3].to_string(),
+                })},
                 "zrem" => {
                 if args.len() < 2 {
                     return Err("invalid params".into());
@@ -555,6 +573,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::GeoAdd { .. } => "geoadd",
             RedisCommand::Zrem { .. } => "zrem",
             RedisCommand::Zscore { .. } => "zscore",
             RedisCommand::Zcard(_) => "zcard",
