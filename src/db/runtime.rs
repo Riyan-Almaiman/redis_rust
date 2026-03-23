@@ -243,6 +243,7 @@ impl DB {
             CommandResult::Response(resp) => {
                 send_cmd(response_tx, resp);
             }
+
             CommandResult::Wait {
                 timeout,
                 replicas,
@@ -286,6 +287,12 @@ impl DB {
                     client_id,
                     resp_command,
                 } => (command, response_tx, client_id, resp_command),
+                ClientRequest::Disconnected { client_id } => {
+                    self.sessions.remove(&client_id);
+                    self.blocking.lists.remove(client_id);
+                    self.blocking.streams.clients.remove(&client_id);
+                    continue;
+                }
             };
             let session = self.sessions.get(&client_id);
             if let Some(session) = session {

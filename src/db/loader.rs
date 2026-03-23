@@ -30,7 +30,6 @@ impl DB {
 
         let mut parser = Parser::new();
         parser.read_buffer.extend_from_slice(&resp_bytes);
-        println!("{:?}", resp_bytes);
         while let Some(mut resp) = parser.parse() {
             if let Resp::Array(ref mut arr) = resp {
                 let cmd_name = arr.pop_front();

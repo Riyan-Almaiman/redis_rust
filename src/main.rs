@@ -159,11 +159,21 @@ async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client
 
     loop {
         let n = match reader.read(&mut buffer).await {
-            Ok(0) => return,
+            Ok(0) => {
+                let _ = connection_tx
+                    .send(ClientRequest::Disconnected { client_id: uuid })
+                    .await;
+                return;
+            },
 
             Ok(n) => n,
 
-            Err(_) => return,
+            Err(_) => {
+                let _ = connection_tx
+                    .send(ClientRequest::Disconnected { client_id: uuid })
+                    .await;
+                return;
+            },
         };
 
         parser.read_buffer.extend_from_slice(&buffer[..n]);

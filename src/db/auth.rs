@@ -23,7 +23,6 @@ impl DB {
         };
         self.sessions.insert(client_id, session);
         let isauth = self.authenticate_user("default", "", client_id);
-        println!("Default user authentication result: {}", isauth);
     }
 
     pub fn authenticated_user(&self, client_id: Uuid) -> Option<&str> {
@@ -52,7 +51,6 @@ impl DB {
     }
     pub fn authenticate_user(&mut self, username: &str, password: &str, client_id: Uuid) -> bool {
          let user = self.users.get(username);
-         println!("Authenticating user: {}, with password: {}", username, password);
         if let Some(user) = user {
             if user.flags.contains(&Flag::NoPass)  
             {

@@ -4,6 +4,7 @@ use crate::parser::CurrentState::{
 };
 use crate::resp::Resp;
 use std::collections::VecDeque;
+use std::str;
 
 pub struct Parser {
     pub(crate) read_buffer: Vec<u8>,
@@ -123,7 +124,12 @@ impl Parser {
                             return Some(Resp::Error(err));
                         }
 
-                        _ => return None,
+                        _ => {
+                            if let Some(resp) = self.try_parse_inline_ping() {
+                                return Some(resp);
+                            }
+                            return None;
+                        }
                     }
                 }
 
@@ -291,5 +297,34 @@ impl Parser {
             }
         }
         false
+    }
+
+    fn try_parse_inline_ping(&mut self) -> Option<Resp> {
+        let saved = self.current_index;
+        let line = match self.read_until_clrf() {
+            Some(line) => line,
+            None => {
+                self.current_index = saved;
+                return None;
+            }
+        };
+
+        let command = match str::from_utf8(&line) {
+            Ok(command) => command.trim(),
+            Err(_) => {
+                self.current_index = saved;
+                return None;
+            }
+        };
+
+        if !command.eq_ignore_ascii_case("PING") {
+            self.current_index = saved;
+            return None;
+        }
+
+        self.reset();
+        Some(Resp::Array(VecDeque::from(vec![Resp::BulkString(
+            b"PING".to_vec(),
+        )])))
     }
 }

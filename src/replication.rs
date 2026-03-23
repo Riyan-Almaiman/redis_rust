@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::{commands_parser::RedisCommand, db::ClientRequest, parser::Parser, resp::Resp};
 
 pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRequest>, port: String) {
-    println!("Connecting to master at {}", master_addr);
 
     let stream = TcpStream::connect(master_addr)
         .await
@@ -94,19 +93,16 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRe
         .await
         .is_err()
     {
-        println!("Failed to initialize replication session");
         return;
     }
 
     loop {
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
-                println!("Master disconnected");
                 return;
             }
             Ok(n) => n,
             Err(e) => {
-                println!("Read error: {:?}", e);
                 return;
             }
         };
@@ -120,7 +116,6 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRe
             match resp {
                 Resp::SimpleString(s) => {
                     if s.starts_with(b"FULLRESYNC") {
-                        println!("FULLRESYNC received");
                         continue;
                     }
                 }
@@ -140,14 +135,12 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRe
                         Some(s) => s.to_lowercase(),
                         None => continue,
                     };
-                    println!("Command: {:?}", arr);
                     let args: Vec<String> = arr
                         .iter()
                         .filter_map(|a| Resp::get_bytes(a))
                         .filter_map(|b| std::str::from_utf8(b).ok())
                         .map(|s| s.to_string())
                         .collect();
-                    println!("FROM MASTER: {} {:?}", cmd_name, args);
 
                     if cmd_name == "replconf" {
                         if args.len() >= 2 && args[0].to_lowercase() == "getack" && args[1] == "*" {

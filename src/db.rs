@@ -58,6 +58,9 @@ pub enum ClientRequest {
         resp_command: Resp,
         command: RedisCommand,
     },
+       Disconnected {
+        client_id: Uuid,
+    },
 }
 
 pub struct KeyValue {

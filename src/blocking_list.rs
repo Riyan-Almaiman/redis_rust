@@ -22,6 +22,15 @@ impl BlockingList {
             self.waiters.entry(key).or_default().push_front(client_id)
         }
     }
+    pub fn remove(&mut self, client_id: Uuid) -> Option<BlockingClient> {
+        let client = self.blocked_list.remove(&client_id);
+        if let Some(client) = &client {
+            for queue in self.waiters.values_mut() {
+                queue.retain(|id| *id != client_id);
+            }
+        }
+        client
+    }
 
     pub fn wake_one(&mut self, key: &[u8], value: Vec<u8>) -> bool {
         let client_id = {
