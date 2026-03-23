@@ -67,9 +67,9 @@ impl DB {
 
         let user = User {
             name: "default".to_string(),
-            password: None,
-            allowed_commands: HashMap::new(),
-            flags: HashMap::from([(Flag::NoPass.to_str().to_string(), Flag::NoPass)]),
+            passwords:  Vec::new(),
+            allowed_commands: HashSet::new(),
+            flags: HashSet::from([Flag::NoPass]),
         };
         let mut db = Self {
             database: HashMap::new(),

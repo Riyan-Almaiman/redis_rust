@@ -4,10 +4,12 @@ use crate::commands_parser::RedisCommand;
 
 pub struct User {
     pub name: String,
-    pub password: Option<String>,
-    pub allowed_commands: HashMap<String, RedisCommand>, 
-    pub flags: HashMap<String, Flag>,
+    pub passwords: Vec<String>,
+    pub allowed_commands: HashSet< String>, 
+    pub flags: HashSet< Flag>,
 }
+#[derive(Hash, Eq, PartialEq)]
+
 pub enum Flag {
     All,
     On, 
@@ -39,10 +41,11 @@ impl Flag {
 }
 
 impl User {
-    pub fn can_execute(&self, cmd_name: &RedisCommand) -> bool {
-        self.allowed_commands.contains_key(cmd_name.name()) 
+     pub fn can_execute(&self, cmd: &RedisCommand) -> bool {
+        let cmd_name = cmd.name().to_ascii_lowercase();
+        self.allowed_commands.contains(&cmd_name) || self.allowed_commands.contains("all")
     }
-    pub fn has_flag(&self, flag: &str) -> bool {
-        self.flags.contains_key(flag) || self.flags.contains_key("all")
+    pub fn has_flag(&self, flag: &Flag) -> bool {
+        self.flags.contains(flag) || self.flags.contains(&Flag::All)
     }
 }
