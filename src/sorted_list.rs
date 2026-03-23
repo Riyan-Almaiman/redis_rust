@@ -54,28 +54,26 @@ impl SortedList {
         }
     }
 
-    /// Get rank of a value (1-based), using dense ranking
-    pub fn rank_of(&self, value: &str) -> Option<usize> {
-        let score = *self.values.get(value)?;
-        let mut rank = 1;
-        for (&s, set) in &self.scores {
-            if s < score {
-                rank += set.len();
-            } else if s == score {
-                let mut lex_rank = 1;
-                for v in set {
-                    if v == value {
-                        return Some(rank + lex_rank - 1);
-                    }
-                    lex_rank += 1;
+pub fn rank_of(&self, value: &str) -> Option<usize> {
+    let score = *self.values.get(value)?;
+    let mut rank = 0;
+    for (&s, set) in &self.scores {
+        if s < score {
+            rank += set.len();
+        } else if s == score {
+            let mut lex_rank = 0; 
+            for v in set {
+                if v == value {
+                    return Some(rank + lex_rank); 
                 }
-            } else {
-                break;
+                lex_rank += 1;
             }
+        } else {
+            break;
         }
-        None
     }
-
+    None
+}
     /// Get min item
     pub fn min(&self) -> Option<(&OrderedFloat<f64>, &str)> {
         self.scores.iter().next().and_then(|(score, set)| set.iter().next().map(|v| (score, v.as_str())))
