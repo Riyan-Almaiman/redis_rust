@@ -41,6 +41,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             timeout,
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Auth { username, password } => AuthCommands::auth(db, username, password),
         RedisCommand::Acl { subcommand, arguments } => AuthCommands::acl(db, subcommand, arguments),
         RedisCommand::GeoSearch { key, longitude, latitude, radius } => GeoCommands::geosearch(db, key, longitude, latitude, radius),
         RedisCommand::GeoDist { key, member1, member2 } => GeoCommands::geodist(db, key, member1, member2),

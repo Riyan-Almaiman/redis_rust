@@ -146,7 +146,11 @@ pub enum RedisCommand {
     },
     Acl {
         subcommand: String,
-        arguments: Vec<String>,}
+        arguments: Vec<String>,},
+    Auth {
+        username: String,
+        password: String,
+    },
     
 }
 impl RedisCommand {
@@ -154,7 +158,7 @@ impl RedisCommand {
         let command = command.to_ascii_lowercase();
 
         match command.as_str() {
-            "acl" => auth_parser::parse(command.as_str(), args),
+            "acl" | "auth" => auth_parser::parse(command.as_str(), args),
             "unsubscribe" | "publish" | "subscribe" | "wait" | "config" | "psync"
             | "replconf" | "info" | "exec" | "discard" | "ping" | "multi" => {
                 server_parser::parse(command.as_str(), args)
@@ -176,6 +180,7 @@ impl RedisCommand {
 
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Auth { .. } => "auth",
             RedisCommand::Acl { .. } => "acl",
             RedisCommand::GeoSearch {..} => "geosearch",
             RedisCommand::GeoDist {.. } => "geodist",
