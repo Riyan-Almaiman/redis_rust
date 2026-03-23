@@ -19,7 +19,6 @@ impl GeoCommands {
             return CommandResult::Response(Resp::Error(format!("ERR invalid longitude,latitude pair {},{}", longitude, latitude).into_bytes()));
         }
 
-         let geo_list = db.database.entry(key.clone()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::GeoList(GeoList::new()) });
         let geo_list = db.database.entry(key.into_bytes()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::GeoList(GeoList::new()) });
         match &mut geo_list.value {
             ValueType::GeoList(gl) => {
