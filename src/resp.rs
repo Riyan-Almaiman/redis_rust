@@ -30,6 +30,23 @@ impl Resp {
             _ => None,
         }
     }
+        pub fn from_strings(vec: Vec<String>) -> Resp {
+        let mut items = VecDeque::with_capacity(vec.len());
+        for s in vec {
+            items.push_back(Resp::BulkString(s.into_bytes()));
+        }
+        Resp::Array(items)
+    }
+        pub fn from_vec<T, F>(vec: Vec<T>, mut mapper: F) -> Resp
+    where
+        F: FnMut(T) -> Resp,
+    {
+        let mut items = VecDeque::with_capacity(vec.len());
+        for item in vec {
+            items.push_back(mapper(item));
+        }
+        Resp::Array(items)
+    }
     pub fn write_format(&self, out: &mut Vec<u8>) {
         match self {
             Resp::SimpleString(bytes) => {

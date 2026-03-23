@@ -131,11 +131,30 @@ pub enum RedisCommand {
         member1: String,
         member2: String,
     },
+    GeoSearch {
+        key: String,
+        longitude: f64,
+        latitude: f64,
+        radius: f64,
+    },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
 
         match command.to_lowercase().as_str() {
+                "geosearch" => {
+                if args.len() < 4 {
+                    return Err("GEOSEARCH requires key, longitude, latitude, and radius".into());
+                }
+                let longitude = args[2].parse::<f64>().map_err(|_| "Invalid longitude")?;
+                let latitude = args[3].parse::<f64>().map_err(|_| "Invalid latitude")?;
+                let radius = args[5].parse::<f64>().map_err(|_| "Invalid radius")?;
+                Ok(RedisCommand::GeoSearch {
+                    key: args[0].to_string(),
+                    longitude,
+                    latitude,
+                    radius,
+                })},
                 "geodist" => {
                 if args.len() < 3 {
                     return Err("GEODIST requires key, member1, and member2".into());
@@ -606,7 +625,8 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
-            Self::GeoDist { key, member1, member2 } => "geodist",
+            RedisCommand::GeoSearch {..} => "geosearch",
+            RedisCommand::GeoDist {.. } => "geodist",
             RedisCommand::GeoPos { .. } => "geopos",
             RedisCommand::GeoAdd { .. } => "geoadd",
             RedisCommand::Zrem { .. } => "zrem",

@@ -10,6 +10,16 @@ use crate::resp::Resp;
 use crate::sorted_list::{GeoPoint, SortedList};
 use crate::valuetype::ValueType;
 impl GeoCommands {  
+    pub fn geosearch(db: &mut DB, key: String, longitude: f64, latitude: f64, radius: f64) -> CommandResult {
+        let results = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => sorted_list.geosearch(GeoPoint { lat: latitude, lon: longitude }, radius),
+                _ => return CommandResult::Response(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())),
+            },
+            None => Vec::new(),
+        };
+        CommandResult::Response(Resp::from_strings(results))
+    }
     pub fn geodist(db: &mut DB, key: String, member1: String, member2: String) -> CommandResult {
         let distance = match db.database.get(key.as_bytes()) {
             Some(kv) => match &kv.value {

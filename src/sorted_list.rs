@@ -28,7 +28,20 @@ impl SortedList {
             values: HashMap::new(),
         }
     }
+    pub fn geosearch(&self, center: GeoPoint, radius_meters: f64) -> Vec<String> {
+        let mut result = Vec::new();
 
+        for name in self.values.keys() {
+            if let Some(point) = self.geopos(name) {
+                let dist = SortedList::haversine_distance(center, point);
+                if dist <= radius_meters {
+                    result.push(name.clone());
+                }
+            }
+        }
+
+        result
+    }
     /// Insert/update numeric score
     pub fn zadd(&mut self, name: String, score: f64) -> bool {
         let score_ord = OrderedFloat(score);
