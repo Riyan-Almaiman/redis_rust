@@ -121,11 +121,23 @@ pub enum RedisCommand {
         longitude: f64,
         latitude: f64,
         member: String,
-    }
+    },
+    GeoPos {
+        key: String,
+        member: String,}
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "geopos" => {
+                if args.len() < 2 {
+                    return Err("GEOPOS requires key and member".into());
+                }
+                Ok(RedisCommand::GeoPos {
+                    key: args[0].to_string(),
+                    member: args[1].to_string(),})
+            },
+                
                 "geoadd" => {
                 if args.len() < 4 {
                     return Err("GEOADD requires key, longitude, latitude, and member".into());
@@ -573,6 +585,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::GeoPos { .. } => "geopos",
             RedisCommand::GeoAdd { .. } => "geoadd",
             RedisCommand::Zrem { .. } => "zrem",
             RedisCommand::Zscore { .. } => "zscore",

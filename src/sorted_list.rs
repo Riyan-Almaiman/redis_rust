@@ -13,7 +13,6 @@ pub struct GeoPoint {
 pub struct SortedList {
     pub scores: BTreeMap<OrderedFloat<f64>, BTreeSet<String>>, // score -> set of names
     pub values: HashMap<String, OrderedFloat<f64>>,           // name -> score
-    pub geo_points: HashMap<String, GeoPoint>,               // optional geo info
 }
 const MIN_LATITUDE: f64 = -85.05112878;
 const MAX_LATITUDE: f64 = 85.05112878;
@@ -27,7 +26,6 @@ impl SortedList {
         Self {
             scores: BTreeMap::new(),
             values: HashMap::new(),
-            geo_points: HashMap::new(),
         }
     }
 
@@ -53,14 +51,11 @@ impl SortedList {
         is_new
     }
 
-    /// Insert/update geo point (doesn't change numeric score unless given explicitly)
     pub fn geoadd(&mut self, name: String, point: GeoPoint) -> bool {
         let mut normalized_lat = ((2.0.pow(26) * (point.lat - MIN_LATITUDE) / LATITUDE_RANGE) as f64).trunc();
         let mut normalized_lon = ((2.0.pow(26)  * (point.lon - MIN_LONGITUDE) / LONGITUDE_RANGE) as f64).trunc();
         let result = SortedList::interleave(normalized_lat, normalized_lon);
         
-        self.geo_points.insert(name.clone(), point);
-        // If no score exists yet, assign 0
         if !self.values.contains_key(&name) {
             self.zadd(name, result);
             true
@@ -68,7 +63,30 @@ impl SortedList {
             false
         }
     }
+    pub fn decode_geo_score(v: u64) -> u64 {
+          let mut v = v & 0x5555555555555555;
+              v = (v | (v >> 1)) & 0x3333333333333333;
+    v = (v | (v >> 2)) & 0x0F0F0F0F0F0F0F0F ;
+    v = (v | (v >> 4)) & 0x00FF00FF00FF00FF;
+    v = (v | (v >> 8)) & 0x0000FFFF0000FFFF;
+    v = (v | (v >> 16)) & 0x00000000FFFFFFFF;
+    v
 
+    }
+    pub fn geopos(&self, name: &str) -> Option<GeoPoint> {
+        self.values.get(name).map(|&score| {
+            let  grid_latitude_number  = SortedList::decode_geo_score(score.0 as u64);
+            let  grid_longitude_number = SortedList::decode_geo_score(score.0 as u64 >> 1); 
+                let grid_latitude_min = MIN_LATITUDE + LATITUDE_RANGE * (grid_latitude_number as f64 / (2.0.pow(26)));
+    let grid_latitude_max = MIN_LATITUDE + LATITUDE_RANGE * ((grid_latitude_number as f64 + 1.0) / (2.0.pow(26)));
+    let grid_longitude_min = MIN_LONGITUDE + LONGITUDE_RANGE * (grid_longitude_number as f64 / (2.0.pow(26)));
+    let grid_longitude_max = MIN_LONGITUDE + LONGITUDE_RANGE * ((grid_longitude_number as f64 + 1.0) / (2.0.pow(26)));
+            let latidue = (grid_latitude_min + grid_latitude_max) / 2.0;
+            let longitude = (grid_longitude_min + grid_longitude_max) / 2.0;
+        
+            GeoPoint { lat: latidue, lon: longitude }
+        })
+    }
     /// Remove a member
     pub fn remove(&mut self, name: &str) -> bool {
         if let Some(&score) = self.values.get(name) {
@@ -77,7 +95,6 @@ impl SortedList {
                 if set.is_empty() { self.scores.remove(&score); }
             }
             self.values.remove(name);
-            self.geo_points.remove(name);
             true
         } else { false }
     }

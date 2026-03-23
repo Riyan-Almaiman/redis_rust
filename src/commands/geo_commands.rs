@@ -28,4 +28,30 @@ impl GeoCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())),
         }
     }
-}
+    pub fn geopos(db: &mut DB, key: String, member: String) -> CommandResult {
+        let response = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => {
+                    let geo_point = sorted_list.geopos(&member);
+                    if let Some(geo_point) = geo_point {
+                        let lat = geo_point.lat;
+                        let lon = geo_point.lon;
+                        Some(Resp::Array(vec![
+                                                    Resp::BulkString(format!("{}", lon).into_bytes()),
+                                                    Resp::BulkString(format!("{}", lat).into_bytes()),
+                                                ].into()))
+                    } else {
+                        None
+                    }
+                 
+                },
+                _ => None,
+            },
+            None => None,
+        };
+        if let Some(pos) = response {
+            CommandResult::Response(pos)
+        } else {
+            CommandResult::Response(Resp::NullBulkString)
+        }
+}}

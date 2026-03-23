@@ -40,6 +40,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             timeout,
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::GeoPos { key, member } => GeoCommands::geopos(db, key, member),   
         RedisCommand::Zrem { key, value } => ListCommands::zrem(db, key, value),
         RedisCommand::GeoAdd { key, longitude, latitude, member }   => GeoCommands::geoadd(db, key, longitude, latitude, member),
         RedisCommand::Zscore { key, value } => ListCommands::zscore(db, key, value),
