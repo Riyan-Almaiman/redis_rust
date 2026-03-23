@@ -12,6 +12,7 @@ impl DB {
     ) {
         if let Some(session) = self.sessions.get_mut(&client_id) {
             session.response_tx = Some(response_tx);
+            println!("test");
             return;
         }
 
@@ -21,7 +22,8 @@ impl DB {
             ..ClientSession::default()
         };
         self.sessions.insert(client_id, session);
-        let _ = self.authenticate_user("default", "", client_id);
+        let isauth = self.authenticate_user("default", "", client_id);
+        println!("Default user authentication result: {}", isauth);
     }
 
     pub fn authenticated_user(&self, client_id: Uuid) -> Option<&str> {
@@ -50,9 +52,12 @@ impl DB {
     }
     pub fn authenticate_user(&mut self, username: &str, password: &str, client_id: Uuid) -> bool {
          let user = self.users.get(username);
-         
+         println!("Authenticating user: {}, with password: {}", username, password);
         if let Some(user) = user {
-            if user.flags.contains(&Flag::NoPass)  {
+            if user.flags.contains(&Flag::NoPass)  
+            {
+                  self.set_authenticated_user(client_id, username.to_string());
+
                 return true;
             }
             for stored_hash in &user.passwords {
