@@ -64,6 +64,7 @@ impl ListCommands {
         let response = match db.database.get(key.as_bytes()) {
             Some(kv) => match &kv.value {
                 ValueType::SortedList(sorted_list) => Resp::Array(sorted_list.zrange(start, end)),
+
                 _ => Resp::NullArray,
             },
             None => Resp::Array(VecDeque::new()),
