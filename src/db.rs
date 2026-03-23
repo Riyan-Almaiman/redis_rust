@@ -8,7 +8,7 @@ use crate::send::send_cmd;
 use crate::user::User;
 use crate::valuetype::ValueType;
 use base64::Engine;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ pub struct DB {
     pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
     pub dir: String,
-       pub users: HashMap<String, User>,        
+    pub users: HashMap<String, User>,        
     pub client_auth: HashMap<Uuid, String>,
     pub file_name: String,
     pub subscribers: HashMap<Uuid, Vec<String>>,
@@ -65,7 +65,12 @@ impl DB {
     }
     pub async fn new(role: Role, dir: String, file_name: String) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
-
+        let user = User {
+            name: "default".to_string(),
+            password: None,
+            allowed_commands: HashSet::new(),
+            flags: HashSet::new(),
+        };
         let mut db = Self {
             database: HashMap::new(),
             sender: pipeline_tx,
@@ -73,7 +78,7 @@ impl DB {
             file_name,
             dir,
             role,
-            users: HashMap::new(),
+            users: HashMap::from([("default".to_string(), user)]),
             client_auth: HashMap::new(),
             subscribers: HashMap::new(),
             ack_waiters: Vec::new(),

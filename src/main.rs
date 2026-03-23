@@ -7,7 +7,6 @@ mod resp;
 mod parser;
 
 mod commands_parser;
-mod geo_list;
 mod lists;
 mod sorted_list;
 mod blocking_list;

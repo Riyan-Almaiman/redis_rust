@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 
 use crate::command_router::CommandResult;
 use crate::db::{KeyValue, DB};
-use crate::geo_list::GeoList;
 use crate::lists::List;
 use crate::resp::Resp;
 use crate::sorted_list::{GeoPoint, SortedList};

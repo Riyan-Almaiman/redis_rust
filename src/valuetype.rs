@@ -2,7 +2,6 @@ use std::collections::{BTreeSet, HashMap};
 
 use ordered_float::OrderedFloat;
 
-use crate::geo_list::GeoList;
 use crate::lists::List;
 use crate::sorted_list::SortedList;
 use crate::stream::Stream;

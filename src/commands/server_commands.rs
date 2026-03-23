@@ -14,13 +14,6 @@ impl ServerCommands {
     pub fn ping() -> CommandResult {
         CommandResult::Response(Resp::SimpleString(b"PONG".to_vec()))
     }
-    pub fn acl(db: &mut DB, subcommand: String, arguments: Vec<String>) -> CommandResult {
-        match subcommand.to_lowercase().as_str() {
-            "whoami" => CommandResult::Response(Resp::BulkString("default".as_bytes().to_vec())),
-
-            _ => CommandResult::Response(Resp::Error(b"ERR unknown ACL subcommand".to_vec())),
-        }
-    }
     pub fn publish(db: &mut DB, channel: String, message: String) -> CommandResult {
         let mut count = 0;
         for (client_id, channels) in &db.subscribers {
