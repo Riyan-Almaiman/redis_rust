@@ -51,7 +51,7 @@ impl GeoCommands {
                 },
                 _ => return CommandResult::Response(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())),
             },
-            None => return CommandResult::Response(Resp::NullArray),
+            None => return CommandResult::Response(Resp::Array(vec![Resp::NullArray; members.len()].into())),
         }
         CommandResult::Response(Resp::Array(res.into()))
 }}
