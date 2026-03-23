@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use ordered_float::OrderedFloat;
+use ordered_float::{Float, FloatCore, OrderedFloat, Pow};
 use crate::resp::Resp;
 
 /// 2D point
@@ -15,6 +15,12 @@ pub struct SortedList {
     pub values: HashMap<String, OrderedFloat<f64>>,           // name -> score
     pub geo_points: HashMap<String, GeoPoint>,               // optional geo info
 }
+const MIN_LATITUDE: f64 = -85.05112878;
+const MAX_LATITUDE: f64 = 85.05112878;
+const MIN_LONGITUDE: f64 = -180.0;
+const MAX_LONGITUDE: f64 = 180.0;
+const LATITUDE_RANGE: f64 = MAX_LATITUDE - MIN_LATITUDE;
+const LONGITUDE_RANGE: f64 = MAX_LONGITUDE - MIN_LONGITUDE;
 
 impl SortedList {
     pub fn new() -> Self {
@@ -49,10 +55,14 @@ impl SortedList {
 
     /// Insert/update geo point (doesn't change numeric score unless given explicitly)
     pub fn geoadd(&mut self, name: String, point: GeoPoint) -> bool {
+        let mut normalized_lat = ((2.0.pow(26) * (point.lat - MIN_LATITUDE) / LATITUDE_RANGE) as f64).trunc();
+        let mut normalized_lon = ((2.0.pow(26)  * (point.lon - MIN_LONGITUDE) / LONGITUDE_RANGE) as f64).trunc();
+        let result = SortedList::interleave(normalized_lat, normalized_lon);
+        
         self.geo_points.insert(name.clone(), point);
         // If no score exists yet, assign 0
         if !self.values.contains_key(&name) {
-            self.zadd(name, 0.0);
+            self.zadd(name, result);
             true
         } else {
             false
@@ -88,7 +98,22 @@ impl SortedList {
         }
         None
     }
-
+    pub fn interleave(x: f64, y: f64) -> f64 {
+        let x_int = SortedList::spread(x as u64);
+        let y_int = SortedList::spread(y as u64);
+        let y_shifted = y_int << 1;
+        let interleaved = x_int | y_shifted;
+        interleaved as f64
+    }
+    fn spread(v: u64) -> u64 {
+        let mut v =  v & 0xFFFFFFFF;
+        v = (v | (v << 16)) & 0x0000FFFF0000FFFF;
+        v = (v | (v << 8))  & 0x00FF00FF00FF00FF;
+        v = (v | (v << 4))  & 0x0F0F0F0F0F0F0F0F;
+        v = (v | (v << 2))  & 0x3333333333333333;
+        v = (v | (v << 1))  & 0x5555555555555555;
+        v 
+    }
     /// Zrange with support for negative indices; returns VecDeque<Resp>
     pub fn zrange(&self, start: isize, end: isize) -> VecDeque<Resp> {
         let mut result = VecDeque::new();
