@@ -1,11 +1,14 @@
 use crate::blocking_manger::BlockingManager;
 use crate::command_router;
 use crate::command_router::CommandResult;
+use crate::commands::server_commands::ServerCommands;
 use crate::commands_parser::RedisCommand;
+use crate::parser::Parser;
 use crate::resp::Resp;
+use crate::resp::Resp::{BulkString, Integer};
 use crate::role::Role;
 use crate::send::send_cmd;
-use crate::user::User;
+use crate::user::{Flag, User};
 use crate::valuetype::ValueType;
 use base64::Engine;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -15,9 +18,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use crate::commands::server_commands::ServerCommands;
-use crate::parser::Parser;
-use crate::resp::Resp::{BulkString, Integer};
 
 pub struct Master {
     pub replication_id: String,
@@ -34,12 +34,11 @@ pub struct DB {
     pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
     pub dir: String,
-    pub users: HashMap<String, User>,        
+    pub users: HashMap<String, User>,
     pub client_auth: HashMap<Uuid, String>,
     pub file_name: String,
     pub subscribers: HashMap<Uuid, Vec<String>>,
     pub subscriber_txs: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
-
 }
 #[derive(Debug)]
 pub struct Client {
@@ -65,11 +64,12 @@ impl DB {
     }
     pub async fn new(role: Role, dir: String, file_name: String) -> Self {
         let (pipeline_tx, pipeline_rx) = tokio::sync::mpsc::channel::<Client>(1000);
+
         let user = User {
             name: "default".to_string(),
             password: None,
-            allowed_commands: HashSet::new(),
-            flags: HashSet::new(),
+            allowed_commands: HashMap::new(),
+            flags: HashMap::from([(Flag::NoPass.to_str().to_string(), Flag::NoPass)]),
         };
         let mut db = Self {
             database: HashMap::new(),
@@ -98,8 +98,16 @@ impl DB {
         let tmp_path = Path::new("/tmp/rdb_output.resp");
         let Ok(file) = File::open(path) else { return };
         let reader = BufReader::new(file);
-        let Ok(_) = rdb::parse(reader, rdb::formatter::Protocol::new(Some(PathBuf::from(tmp_path))), rdb::filter::Simple::new()) else { return };
-        let Ok(resp_bytes) = std::fs::read(tmp_path) else { return };
+        let Ok(_) = rdb::parse(
+            reader,
+            rdb::formatter::Protocol::new(Some(PathBuf::from(tmp_path))),
+            rdb::filter::Simple::new(),
+        ) else {
+            return;
+        };
+        let Ok(resp_bytes) = std::fs::read(tmp_path) else {
+            return;
+        };
 
         let mut parser = Parser::new();
         parser.read_buffer.extend_from_slice(&resp_bytes);
@@ -180,11 +188,20 @@ impl DB {
             if self.subscribers.contains_key(&client_id) {
                 match &command {
                     RedisCommand::Ping => {
-                        send_cmd(response_tx, Resp::Array(VecDeque::from(vec![BulkString("pong".as_bytes().to_vec()), BulkString("".as_bytes().to_vec())])));
-                        continue
+                        send_cmd(
+                            response_tx,
+                            Resp::Array(VecDeque::from(vec![
+                                BulkString("pong".as_bytes().to_vec()),
+                                BulkString("".as_bytes().to_vec()),
+                            ])),
+                        );
+                        continue;
                     }
                     RedisCommand::Subscribe(channel) => {
-                        let subscriber = self.subscribers.entry(client_id).or_insert_with(|| Vec::new());
+                        let subscriber = self
+                            .subscribers
+                            .entry(client_id)
+                            .or_insert_with(|| Vec::new());
                         if !subscriber.contains(&channel) {
                             subscriber.push(channel.clone());
                         }
@@ -195,7 +212,7 @@ impl DB {
                         self.subscriber_txs.insert(client_id, response_tx.clone());
 
                         send_cmd(response_tx, Resp::Array(resp));
-                        continue
+                        continue;
                     }
                     RedisCommand::Unsubscribe(channel) => {
                         if let Some(channels) = self.subscribers.get_mut(&client_id) {
@@ -203,30 +220,34 @@ impl DB {
                         }
                         let remaining = self.subscribers.get(&client_id).map_or(0, |c| c.len());
 
-                        let  response = Resp::Array(vec![
-                            Resp::BulkString(b"unsubscribe".to_vec()),
-                            Resp::BulkString(channel.clone().into_bytes()),
-                            Resp::Integer(remaining),
-                        ].into());
+                        let response = Resp::Array(
+                            vec![
+                                Resp::BulkString(b"unsubscribe".to_vec()),
+                                Resp::BulkString(channel.clone().into_bytes()),
+                                Resp::Integer(remaining),
+                            ]
+                            .into(),
+                        );
 
                         send_cmd(response_tx, response);
 
-                        continue
+                        continue;
                     }
                     _ => {
-                        let res = format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", command.name());
+                        let res = format!(
+                            "ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+                            command.name()
+                        );
                         send_cmd(response_tx, Resp::Error(res.as_bytes().to_vec()));
-                        continue
+                        continue;
                     }
                 }
-
             }
             let mut cmd_buffer = Vec::new();
             resp_command.write_format(&mut cmd_buffer);
 
             if let Some(client) = self.multi_list.get_mut(&client_id) {
                 match command {
-
                     RedisCommand::Exec => {
                         let cmds = self.multi_list.remove(&client_id).unwrap_or_default();
 
@@ -262,7 +283,6 @@ impl DB {
                 CommandResult::Subscribe(resp) => {
                     self.subscriber_txs.insert(client_id, response_tx.clone());
                     send_cmd(response_tx, resp);
-
                 }
                 CommandResult::Response(resp) => {
                     send_cmd(response_tx, resp);
