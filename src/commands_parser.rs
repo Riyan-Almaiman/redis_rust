@@ -137,11 +137,22 @@ pub enum RedisCommand {
         latitude: f64,
         radius: f64,
     },
+    Acl {
+        subcommand: String,
+        arguments: Vec<String>,}
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
 
         match command.to_lowercase().as_str() {
+                "acl" => {
+                if args.len() < 1 {
+                    return Err("ACL requires a subcommand".into());
+                }
+                Ok(RedisCommand::Acl {
+                    subcommand: args[0].to_string(),
+                    arguments: args[1..].iter().map(|s| s.to_string()).collect(),
+                })},
                 "geosearch" => {
                 if args.len() < 4 {
                     return Err("GEOSEARCH requires key, longitude, latitude, and radius".into());
@@ -625,6 +636,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Acl { .. } => "acl",
             RedisCommand::GeoSearch {..} => "geosearch",
             RedisCommand::GeoDist {.. } => "geodist",
             RedisCommand::GeoPos { .. } => "geopos",

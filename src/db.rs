@@ -5,6 +5,7 @@ use crate::commands_parser::RedisCommand;
 use crate::resp::Resp;
 use crate::role::Role;
 use crate::send::send_cmd;
+use crate::user::User;
 use crate::valuetype::ValueType;
 use base64::Engine;
 use std::collections::{HashMap, VecDeque};
@@ -33,7 +34,8 @@ pub struct DB {
     pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
     pub dir: String,
-    
+       pub users: HashMap<String, User>,        
+    pub client_auth: HashMap<Uuid, String>,
     pub file_name: String,
     pub subscribers: HashMap<Uuid, Vec<String>>,
     pub subscriber_txs: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
@@ -71,6 +73,8 @@ impl DB {
             file_name,
             dir,
             role,
+            users: HashMap::new(),
+            client_auth: HashMap::new(),
             subscribers: HashMap::new(),
             ack_waiters: Vec::new(),
             slaves: HashMap::new(),

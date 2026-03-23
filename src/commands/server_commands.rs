@@ -1,12 +1,12 @@
-use std::collections::VecDeque;
 use crate::command_router::CommandResult;
 use crate::db::DB;
 use crate::resp::Resp;
+use crate::resp::Resp::{BulkString, Integer};
 use crate::role::Role;
 use crate::send::send_cmd;
 use crate::valuetype::ValueType;
+use std::collections::VecDeque;
 use uuid::Uuid;
-use crate::resp::Resp::{BulkString, Integer};
 
 pub struct ServerCommands;
 
@@ -14,17 +14,28 @@ impl ServerCommands {
     pub fn ping() -> CommandResult {
         CommandResult::Response(Resp::SimpleString(b"PONG".to_vec()))
     }
+    pub fn acl(db: &mut DB, subcommand: String, arguments: Vec<String>) -> CommandResult {
+        match subcommand.to_lowercase().as_str() {
+            "whoami" => CommandResult::Response(Resp::BulkString("default".as_bytes().to_vec())),
+
+            _ => CommandResult::Response(Resp::Error(b"ERR unknown ACL subcommand".to_vec())),
+        }
+    }
     pub fn publish(db: &mut DB, channel: String, message: String) -> CommandResult {
         let mut count = 0;
         for (client_id, channels) in &db.subscribers {
             if channels.contains(&channel) {
                 if let Some(tx) = db.subscriber_txs.get(client_id) {
                     let mut resp = Vec::new();
-                    Resp::Array(vec![
-                        Resp::BulkString(b"message".to_vec()),
-                        Resp::BulkString(channel.as_bytes().to_vec()),
-                        Resp::BulkString(message.as_bytes().to_vec()),
-                    ].into()).write_format(&mut resp);
+                    Resp::Array(
+                        vec![
+                            Resp::BulkString(b"message".to_vec()),
+                            Resp::BulkString(channel.as_bytes().to_vec()),
+                            Resp::BulkString(message.as_bytes().to_vec()),
+                        ]
+                        .into(),
+                    )
+                    .write_format(&mut resp);
                     let _ = tx.send(resp);
                     count += 1;
                 }
@@ -33,18 +44,19 @@ impl ServerCommands {
         CommandResult::Response(Resp::Integer(count))
     }
     pub fn unsubscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
+        if let Some(channels) = db.subscribers.get_mut(&client_id) {
+            channels.retain(|c| c != &channel);
+        }
+        let remaining = db.subscribers.get(&client_id).map_or(0, |c| c.len());
 
-            if let Some(channels) = db.subscribers.get_mut(&client_id) {
-                channels.retain(|c| c != &channel);
-            }
-            let remaining = db.subscribers.get(&client_id).map_or(0, |c| c.len());
-
-           let  response = Resp::Array(vec![
+        let response = Resp::Array(
+            vec![
                 Resp::BulkString(b"unsubscribe".to_vec()),
                 Resp::BulkString(channel.into_bytes()),
                 Resp::Integer(remaining),
-            ].into());
-
+            ]
+            .into(),
+        );
 
         CommandResult::Response(response)
     }
@@ -52,8 +64,10 @@ impl ServerCommands {
         CommandResult::Response(Resp::BulkString(data))
     }
     pub fn subscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
-
-        let subscriber = db.subscribers.entry(client_id).or_insert_with(|| Vec::new());
+        let subscriber = db
+            .subscribers
+            .entry(client_id)
+            .or_insert_with(|| Vec::new());
         if !subscriber.contains(&channel) {
             subscriber.push(channel.clone());
         }
@@ -85,21 +99,19 @@ impl ServerCommands {
 
         match args[0].to_lowercase().as_str() {
             "get" => {
-                    for arg in args[1..].iter() {
-                        match arg.to_lowercase().as_str() {
-                            "dir" => {
-                                res.push(Resp::BulkString(arg.as_bytes().to_vec()));
-                                res.push(Resp::BulkString(db.dir.as_bytes().to_vec()));
-
-
-                            },
-                            "dbfilename" => {
-                                res.push(Resp::BulkString(arg.as_bytes().to_vec()));
-                                res.push(Resp::BulkString(db.file_name.as_bytes().to_vec()));
-                            }
-                            _ => ()
+                for arg in args[1..].iter() {
+                    match arg.to_lowercase().as_str() {
+                        "dir" => {
+                            res.push(Resp::BulkString(arg.as_bytes().to_vec()));
+                            res.push(Resp::BulkString(db.dir.as_bytes().to_vec()));
                         }
+                        "dbfilename" => {
+                            res.push(Resp::BulkString(arg.as_bytes().to_vec()));
+                            res.push(Resp::BulkString(db.file_name.as_bytes().to_vec()));
+                        }
+                        _ => (),
                     }
+                }
             }
             _ => (),
         }
@@ -165,9 +177,10 @@ impl ServerCommands {
         let type_str = match db.database.get(&key) {
             None => b"none".as_slice(),
             Some(kv) => match kv.value {
-                ValueType::String(_) | ValueType::List(_) | ValueType::Stream(_) | ValueType::SortedList(_)=> {
-                    kv.value.get_value_type()
-                }
+                ValueType::String(_)
+                | ValueType::List(_)
+                | ValueType::Stream(_)
+                | ValueType::SortedList(_) => kv.value.get_value_type(),
             },
         };
 
