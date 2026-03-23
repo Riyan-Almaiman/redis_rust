@@ -72,6 +72,24 @@ impl SortedList {
     v = (v | (v >> 16)) & 0x00000000FFFFFFFF;
     v
 
+    
+    }pub fn geodist(&self, name1: &str, name2: &str) -> Option<f64> {
+        let p1 = self.geopos(name1)?;
+        let p2 = self.geopos(name2)?;
+        Some(SortedList::haversine_distance(p1, p2))
+    }
+
+    fn haversine_distance(p1: GeoPoint, p2: GeoPoint) -> f64 {
+        let r = 6372797.560856; 
+        let lat1 = p1.lat.to_radians();
+        let lat2 = p2.lat.to_radians();
+        let dlat = (p2.lat - p1.lat).to_radians();
+        let dlon = (p2.lon - p1.lon).to_radians();
+
+        let a = (dlat / 2.0).sin().powi(2)
+            + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().asin();
+        r * c
     }
     pub fn geopos(&self, name: &str) -> Option<GeoPoint> {
         self.values.get(name).map(|&score| {

@@ -9,8 +9,21 @@ use crate::lists::List;
 use crate::resp::Resp;
 use crate::sorted_list::{GeoPoint, SortedList};
 use crate::valuetype::ValueType;
-impl GeoCommands {
-    
+impl GeoCommands {  
+    pub fn geodist(db: &mut DB, key: String, member1: String, member2: String) -> CommandResult {
+        let distance = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => sorted_list.geodist(&member1, &member2),
+                _ => None,
+            },
+            None => None,
+        };
+        if let Some(dist) = distance {
+            CommandResult::Response(Resp::BulkString(format!("{}", dist).into_bytes()))
+        } else {
+            CommandResult::Response(Resp::NullBulkString)
+        }
+    }
     pub fn geoadd(db: &mut DB, key: String, longitude: f64, latitude: f64, member: String) -> CommandResult {
         if latitude < -85.05112878 || latitude > 85.05112878 {
             return CommandResult::Response(Resp::Error(format!("ERR invalid longitude,latitude pair {},{}", longitude, latitude).into_bytes()));

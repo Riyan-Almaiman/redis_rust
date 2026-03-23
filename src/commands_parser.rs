@@ -126,10 +126,28 @@ pub enum RedisCommand {
         key: String,
         members: Vec<String>,
     },
+    GeoDist {
+        key: String,
+        member1: String,
+        member2: String,
+    },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
+
         match command.to_lowercase().as_str() {
+                "geodist" => {
+                if args.len() < 3 {
+                    return Err("GEODIST requires key, member1, and member2".into());
+                 
+
+                }
+                Ok(RedisCommand::GeoDist {
+                    key: args[0].to_string(),
+                    member1: args[1].to_string(),
+                    member2: args[2].to_string(),
+                })
+            },
                 "geopos" => {
                 if args.len() < 2 {
                     return Err("GEOPOS requires key and member".into());
@@ -588,6 +606,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            Self::GeoDist { key, member1, member2 } => "geodist",
             RedisCommand::GeoPos { .. } => "geopos",
             RedisCommand::GeoAdd { .. } => "geoadd",
             RedisCommand::Zrem { .. } => "zrem",
