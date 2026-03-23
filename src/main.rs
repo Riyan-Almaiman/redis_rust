@@ -9,7 +9,7 @@ mod parser;
 mod commands_parser;
 
 mod lists;
-
+mod sorted_list;
 mod blocking_list;
 mod blocking_manger;
 mod blocking_stream;

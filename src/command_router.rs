@@ -44,6 +44,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
         RedisCommand::Ping => ServerCommands::ping(),
         RedisCommand::Subscribe(channel) => ServerCommands::subscribe(db, channel, client_id),
         RedisCommand::Publish{channel, message} => ServerCommands::publish(db, channel, message),
+        RedisCommand::Zadd{key, values} => ListCommands::zadd(db, key, values),
 
         RedisCommand::Keys(key) => StringCommands::keys(db, key),
 

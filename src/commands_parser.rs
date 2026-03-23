@@ -1,3 +1,5 @@
+use std::f64;
+
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -93,10 +95,34 @@ pub enum RedisCommand {
         message: String,
     },
     Unsubscribe(String),
+    Zadd {
+        key: String,
+        values: Vec<(f64, String)>,
+    },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+            "zadd" => {
+                let mut values = Vec::new();
+
+                if args.len() < 3 {
+                    return Err("invalid params".into());
+                }
+
+                if args[1..].len() % 2 != 0 {
+                    return Err("invalid params".into());
+                }
+
+                for chunk in args[1..].chunks(2) {
+                    let f: f64 = chunk[0].parse::<f64>().map_err(|_| "invalid value")?;
+                    values.push((f, chunk[1].to_string()));
+                }
+                Ok(RedisCommand::Zadd {
+                    key: args[0].to_string(),
+                    values,
+                })
+            }
             "unsubscribe" => {
                 if args.len() < 1 {
                     return Err("no params".into());
@@ -458,6 +484,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Zadd { key, values }=>"zadd",
             RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",

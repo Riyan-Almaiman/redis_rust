@@ -4,6 +4,7 @@ use crate::command_router::CommandResult;
 use crate::db::{KeyValue, DB};
 use crate::lists::List;
 use crate::resp::Resp;
+use crate::sorted_list::SortedList;
 use crate::valuetype::ValueType;
 
 pub struct ListCommands;
@@ -20,7 +21,18 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+    pub fn zadd(db: &mut DB, key: String, values: Vec<(f64, String)>) -> CommandResult {
+        let  key_map = db.database.entry(key.into()).or_insert(KeyValue{expiry: None, value: ValueType::SortedList(SortedList::new())} );
+        for val in &values {
+                if let ValueType::SortedList(ref mut value) = key_map.value {
+                    value.insert(val.1.clone(), val.0);
+                }
+        }
 
+
+        CommandResult::Response(Resp::Integer(values.len()))
+
+    }
     pub fn rpush(db: &mut DB, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandResult {
         let entry = db
             .database
