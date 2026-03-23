@@ -165,7 +165,7 @@ impl ServerCommands {
         let type_str = match db.database.get(&key) {
             None => b"none".as_slice(),
             Some(kv) => match kv.value {
-                ValueType::String(_) | ValueType::List(_) | ValueType::Stream(_) | ValueType::SortedList(_) | ValueType::GeoList(_) => {
+                ValueType::String(_) | ValueType::List(_) | ValueType::Stream(_) | ValueType::SortedList(_)=> {
                     kv.value.get_value_type()
                 }
             },

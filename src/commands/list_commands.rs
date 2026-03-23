@@ -91,7 +91,7 @@ impl ListCommands {
         for val in &values {
                 if let ValueType::SortedList(ref mut value) = key_map.value {
                    
-                    if value.insert_or_update(val.1.clone(), val.0) {
+                    if value.zadd(val.1.clone(), val.0) {
                         created+=1;
                     }
                 }

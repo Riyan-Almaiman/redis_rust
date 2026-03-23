@@ -7,7 +7,7 @@ use crate::db::{KeyValue, DB};
 use crate::geo_list::GeoList;
 use crate::lists::List;
 use crate::resp::Resp;
-use crate::sorted_list::SortedList;
+use crate::sorted_list::{GeoPoint, SortedList};
 use crate::valuetype::ValueType;
 impl GeoCommands {
     
@@ -19,10 +19,10 @@ impl GeoCommands {
             return CommandResult::Response(Resp::Error(format!("ERR invalid longitude,latitude pair {},{}", longitude, latitude).into_bytes()));
         }
 
-        let geo_list = db.database.entry(key.into_bytes()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::GeoList(GeoList::new()) });
+        let geo_list = db.database.entry(key.into_bytes()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::SortedList(SortedList::new()) });
         match &mut geo_list.value {
-            ValueType::GeoList(gl) => {
-                let is_new = gl.insert_or_update(member, latitude, longitude);
+            ValueType::SortedList(gl) => {
+                let is_new = gl.geoadd(member, GeoPoint { lat: latitude, lon: longitude });
                 CommandResult::Response(Resp::Integer(if is_new { 1 } else { 0 }))
             },
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE Operation against a key holding the wrong kind of value".to_vec())),

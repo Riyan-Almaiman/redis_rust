@@ -12,7 +12,6 @@ pub enum ValueType {
     List(List),
     Stream(Stream),
     SortedList(SortedList),
-    GeoList(GeoList),
 
 }
 impl ValueType {
@@ -27,7 +26,6 @@ impl ValueType {
             ValueType::List(_) => b"list",
             ValueType::Stream(_) => b"stream",
             ValueType::SortedList(_) => b"sortedlist",
-            ValueType::GeoList(_) => b"geolist",
             _ => b"none",
         }
     }
