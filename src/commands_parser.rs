@@ -108,11 +108,23 @@ pub enum RedisCommand {
         end: isize,
     },
     Zcard(String),
-    
+    Zscore {
+        key: String,
+        value: String,
+    },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "zscore" => {
+                if args.len() < 2 {
+                    return Err("invalid params".into());
+                }
+                Ok(RedisCommand::Zscore {
+                    key: args[0].to_string(),
+                    value: args[1].to_string(),
+                })
+            },
                 "zcard" => {
                 if args.len() < 1 {
                     return Err("zcard requires a key".into());
@@ -529,7 +541,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
-
+            RedisCommand::Zscore { .. } => "zscore",
             RedisCommand::Zcard(_) => "zcard",
             RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",
             RedisCommand::Zrank { key: _, values: _ } => "zrank",
