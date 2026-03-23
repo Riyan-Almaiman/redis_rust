@@ -124,7 +124,8 @@ pub enum RedisCommand {
     },
     GeoPos {
         key: String,
-        member: String,}
+        members: Vec<String>,
+    },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
@@ -133,9 +134,11 @@ impl RedisCommand {
                 if args.len() < 2 {
                     return Err("GEOPOS requires key and member".into());
                 }
+             
                 Ok(RedisCommand::GeoPos {
                     key: args[0].to_string(),
-                    member: args[1].to_string(),})
+                    members: args[1..].iter().map(|s| s.to_string()).collect(),
+                })
             },
                 
                 "geoadd" => {
