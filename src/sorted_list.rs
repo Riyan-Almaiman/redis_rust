@@ -96,11 +96,8 @@ impl SortedList {
         for (_score, set) in &self.scores {
             for name in set {
                 if idx >= start_idx && idx <= end_idx {
-                    if let Some(point) = self.geo_points.get(name) {
-                        result.push_back(Resp::BulkString(format!("{}:{}:{}", name, point.lat, point.lon).into_bytes()));
-                    } else {
-                        result.push_back(Resp::BulkString(name.clone().into_bytes()));
-                    }
+                                          result.push_back(Resp::BulkString(name.clone().into_bytes()));
+
                 }
                 idx += 1;
                 if idx > end_idx { return result; }
