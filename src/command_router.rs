@@ -39,6 +39,7 @@ pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
             timeout,
             replicas_num,
         } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Zrem { key, value } => ListCommands::zrem(db, key, value),
         RedisCommand::Zscore { key, value } => ListCommands::zscore(db, key, value),
         RedisCommand::Zcard(key) => ListCommands::zcard(db, key),
         RedisCommand::Zrank { key, values } => ListCommands::zrank(db, key, values),

@@ -112,10 +112,24 @@ pub enum RedisCommand {
         key: String,
         value: String,
     },
+    Zrem {
+        key: String,
+        value: String,
+    }
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "zrem" => {
+                if args.len() < 2 {
+                    return Err("invalid params".into());
+                    
+                }
+                Ok(RedisCommand::Zrem {
+                    key: args[0].to_string(),
+                    value: args[1].to_string(),
+                })
+            },
                 "zscore" => {
                 if args.len() < 2 {
                     return Err("invalid params".into());
@@ -541,6 +555,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            RedisCommand::Zrem { .. } => "zrem",
             RedisCommand::Zscore { .. } => "zscore",
             RedisCommand::Zcard(_) => "zcard",
             RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",

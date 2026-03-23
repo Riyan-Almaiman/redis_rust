@@ -21,6 +21,20 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+    pub fn zrem(db: &mut DB, key: String, value: String) -> CommandResult {
+        let response = match db.database.get_mut(key.as_bytes()) {
+            Some(kv) => match &mut kv.value {
+                ValueType::SortedList(sorted_list) => sorted_list.remove(&value),
+                _ => false,
+            },
+            None => false,
+        };
+        if response {
+            CommandResult::Response(Resp::Integer(1))
+        } else {
+            CommandResult::Response(Resp::Integer(0))
+        }
+    }
     pub fn zscore(db: &mut DB, key: String, value: String) -> CommandResult {
         let response = match db.database.get(key.as_bytes()) {
             Some(kv) => match &kv.value {
