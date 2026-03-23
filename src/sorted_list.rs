@@ -1,102 +1,129 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use ordered_float::OrderedFloat;
 
 pub struct SortedList {
-    set: BTreeSet<(OrderedFloat<f64>, String)>,
-    values: HashSet<String>,
+    scores: BTreeMap<OrderedFloat<f64>, BTreeSet<String>>, // score -> set of values
+    values: HashMap<String, OrderedFloat<f64>>,           // value -> score
 }
 
 impl SortedList {
-    /// Create a new empty SortedList
     pub fn new() -> Self {
         Self {
-            set: BTreeSet::new(),
-            values: HashSet::new(),
-        }
-    }
-  pub fn insert_or_update(&mut self, value: String, score: f64) -> bool {
-        if self.values.contains(&value) {
-            if let Some(old_pair) = self
-                .set
-                .iter()
-                .find(|(_, v)| *v == value)
-                .cloned()
-            {
-                self.set.remove(&old_pair);
-            }
-            self.set.insert((OrderedFloat(score), value));
-            false
-            
-        } else {
-            self.set.insert((OrderedFloat(score), value.clone()));
-            self.values.insert(value);
-            true 
-        }}
-    /// Insert a value with a score
-    pub fn insert(&mut self, value: String, score: f64) {
-        if self.set.insert((OrderedFloat(score), value.clone())) {
-            self.values.insert(value);
+            scores: BTreeMap::new(),
+            values: HashMap::new(),
         }
     }
 
-    /// Remove an exact value with a score
-    pub fn remove(&mut self, value: &str, score: f64) -> bool {
-        if self.set.remove(&(OrderedFloat(score), value.to_string())) {
-            self.values.remove(value);
+    /// Insert or update a value. Returns true if created, false if updated.
+    pub fn insert_or_update(&mut self, value: String, score: f64) -> bool {
+        let score_ord = OrderedFloat(score);
+        if let Some(&old_score) = self.values.get(&value) {
+            if old_score == score_ord {
+                return false; // same score, nothing to do
+            }
+            // remove from old score set
+            if let Some(set) = self.scores.get_mut(&old_score) {
+                set.remove(&value);
+                if set.is_empty() {
+                    self.scores.remove(&old_score);
+                }
+            }
+            // insert into new score
+            self.scores.entry(score_ord).or_default().insert(value.clone());
+            self.values.insert(value, score_ord);
+            false
+        } else {
+            self.scores.entry(score_ord).or_default().insert(value.clone());
+            self.values.insert(value, score_ord);
+            true
+        }
+    }
+
+    /// Remove a value
+    pub fn remove(&mut self, value: &str) -> bool {
+        if let Some(score) = self.values.remove(value) {
+            if let Some(set) = self.scores.get_mut(&score) {
+                set.remove(value);
+                if set.is_empty() {
+                    self.scores.remove(&score);
+                }
+            }
             true
         } else {
             false
         }
     }
 
-    /// Check if a (value, score) pair exists
-    pub fn contains(&self, value: &str, score: f64) -> bool {
-        self.set.contains(&(OrderedFloat(score), value.to_string()))
+    /// Get rank of a value (1-based), using dense ranking
+    pub fn rank_of(&self, value: &str) -> Option<usize> {
+        let score = *self.values.get(value)?;
+        let mut rank = 1;
+        for (&s, set) in &self.scores {
+            if s < score {
+                rank += set.len();
+            } else if s == score {
+                let mut lex_rank = 1;
+                for v in set {
+                    if v == value {
+                        return Some(rank + lex_rank - 1);
+                    }
+                    lex_rank += 1;
+                }
+            } else {
+                break;
+            }
+        }
+        None
     }
 
-    /// Check if a value exists regardless of score (fast O(1))
-    pub fn contains_value(&self, value: &str) -> bool {
-        self.values.contains(value)
+    /// Get min item
+    pub fn min(&self) -> Option<(&OrderedFloat<f64>, &str)> {
+        self.scores.iter().next().and_then(|(score, set)| set.iter().next().map(|v| (score, v.as_str())))
     }
 
-    /// Number of items in the set
+    /// Get max item
+    pub fn max(&self) -> Option<(&OrderedFloat<f64>, &str)> {
+        self.scores.iter().next_back().and_then(|(score, set)| set.iter().next_back().map(|v| (score, v.as_str())))
+    }
+
+    /// Top N items
+    pub fn top_n(&self, n: usize) -> Vec<(&OrderedFloat<f64>, &str)> {
+        let mut result = Vec::new();
+        for (score, set) in self.scores.iter().rev() {
+            for v in set.iter().rev() {
+                result.push((score, v.as_str()));
+                if result.len() == n {
+                    return result;
+                }
+            }
+        }
+        result
+    }
+
+    /// Bottom N items
+    pub fn bottom_n(&self, n: usize) -> Vec<(&OrderedFloat<f64>, &str)> {
+        let mut result = Vec::new();
+        for (score, set) in &self.scores {
+            for v in set {
+                result.push((score, v.as_str()));
+                if result.len() == n {
+                    return result;
+                }
+            }
+        }
+        result
+    }
+
     pub fn len(&self) -> usize {
-        self.set.len()
+        self.values.len()
     }
 
-    /// Is the set empty?
-    pub fn is_empty(&self) -> bool {
-        self.set.is_empty()
+    pub fn contains_value(&self, value: &str) -> bool {
+        self.values.contains_key(value)
     }
 
-    /// Iterate over items (sorted by score ascending)
-    pub fn iter(&self) -> impl Iterator<Item = &(OrderedFloat<f64>, String)> {
-        self.set.iter()
-    }
-
-    /// Get the lowest-score item
-    pub fn min(&self) -> Option<&(OrderedFloat<f64>, String)> {
-        self.set.first()
-    }
-
-    /// Get the highest-score item
-    pub fn max(&self) -> Option<&(OrderedFloat<f64>, String)> {
-        self.set.last()
-    }
-
-    /// Get top N highest scores
-    pub fn top_n(&self, n: usize) -> Vec<&(OrderedFloat<f64>, String)> {
-        self.set.iter().rev().take(n).collect()
-    }
-
-    /// Get bottom N lowest scores
-    pub fn bottom_n(&self, n: usize) -> Vec<&(OrderedFloat<f64>, String)> {
-        self.set.iter().take(n).collect()
-    }
-
-    /// Clear everything
     pub fn clear(&mut self) {
-        self.set.clear();
+        self.scores.clear();
         self.values.clear();
     }
 }

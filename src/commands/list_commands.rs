@@ -21,6 +21,20 @@ impl ListCommands {
             _ => CommandResult::Response(Resp::Error(b"WRONGTYPE".to_vec())),
         }
     }
+    pub fn zrank(db: &mut DB, key: String, value: String) -> CommandResult {
+        let response = match db.database.get(key.as_bytes()) {
+            Some(kv) => match &kv.value {
+                ValueType::SortedList(sorted_list) => sorted_list.rank_of(&value),
+                _ => None,
+            },
+            None => None,
+        };
+        if let Some(rank) = response {
+            CommandResult::Response(Resp::Integer(rank ))
+        } else {
+            CommandResult::Response(Resp::NullBulkString)
+        }
+    }
     pub fn zadd(db: &mut DB, key: String, values: Vec<(f64, String)>) -> CommandResult {
         let  key_map = db.database.entry(key.into()).or_insert(KeyValue{expiry: None, value: ValueType::SortedList(SortedList::new())} );
         let mut created = 0;

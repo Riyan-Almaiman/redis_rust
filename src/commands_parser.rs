@@ -98,11 +98,30 @@ pub enum RedisCommand {
     Zadd {
         key: String,
         values: Vec<(f64, String)>,
+    },   Zrank {
+        key: String,
+        values:  String,
     },
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
         match command.to_lowercase().as_str() {
+                "zrank" => {
+                // let mut values = Vec::new();
+
+                if args.len() < 2 {
+                    return Err("invalid params".into());
+                }
+
+
+                // for arg in & args[1..] {
+                //     values.push(arg.to_string());
+                // }
+                Ok(RedisCommand::Zrank {
+                    key: args[0].to_string(),
+                        values: args[1].to_string(),
+                })
+            }
             "zadd" => {
                 let mut values = Vec::new();
 
@@ -484,6 +503,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
+            Self::Zrank { key: _, values: _ } => "zrank",
             RedisCommand::Zadd { key: _, values: _ }=>"zadd",
             RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
