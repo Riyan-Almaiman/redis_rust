@@ -100,35 +100,51 @@ pub fn rank_of(&self, value: &str) -> Option<usize> {
         result
     }
   
-   pub fn zrange(&self, start: usize, end: usize) -> VecDeque<Resp> {
+
+
+    pub fn zrange(&self, start: isize, end: isize) -> VecDeque<Resp> {
         let mut result = VecDeque::new();
-        if start > end {
+        let total_len: usize = self.scores.values().map(|s| s.len()).sum();
+        if total_len == 0 {
+            return result;
+        }
+
+        // Convert negative indices to positive
+        let  start_idx = if start < 0 {
+            (total_len as isize + start).max(0) as usize
+        } else {
+            (start as usize).min(total_len)
+        };
+        let  end_idx = if end < 0 {
+            (total_len as isize + end).max(0) as usize
+        } else {
+            (end as usize).min(total_len - 1)
+        };
+
+        if start_idx > end_idx {
             return result; // empty range
         }
 
         let mut idx = 0;
-
         for (_score, set) in &self.scores {
             let set_len = set.len();
-            // Skip entire set if range is before start
-            if idx + set_len <= start {
+
+            if idx + set_len <= start_idx {
                 idx += set_len;
                 continue;
             }
 
-            // Collect only the elements in range
             for v in set {
-                if idx >= start && idx <= end {
-                    result.push_back(Resp::BulkString(v.clone().into())); // push owned String
+                if idx >= start_idx && idx <= end_idx {
+                    result.push_back(Resp::BulkString(v.clone().into()));
                 }
                 idx += 1;
-                if idx > end {
-                    return result; // collected enough
+                if idx > end_idx {
+                    return result;
                 }
             }
         }
-        
-       
+
         result
     }
 

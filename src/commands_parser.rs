@@ -104,8 +104,8 @@ pub enum RedisCommand {
     },
     Zrange {
         key: String,
-        start: usize,
-        end: usize,
+        start: isize,
+        end: isize,
     },
     
 }
@@ -117,8 +117,8 @@ impl RedisCommand {
                     return Err("zrange requires key, start, end".into());
                 }
             
-                let start = args[1].parse::<usize>().map_err(|_| "Invalid start")?;
-                let end = args[2].parse::<usize>().map_err(|_| "Invalid end")?;
+                let start = args[1].parse::<isize>().map_err(|_| "Invalid start")?;
+                let end = args[2].parse::<isize>().map_err(|_| "Invalid end")?;
                 Ok(RedisCommand::Zrange {
                     key: args[0].to_string(),
                     start,
@@ -522,10 +522,9 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
-            RedisCommand::Zrange { key, start, end } => "zrange",
+            RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",
             RedisCommand::Zrank { key: _, values: _ } => "zrank",
             RedisCommand::Zadd { key: _, values: _ }=>"zadd",
-            RedisCommand::Zrange { key: _, start: _, end: _ } => "zrange",
             RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",
