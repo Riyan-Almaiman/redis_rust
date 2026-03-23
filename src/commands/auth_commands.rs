@@ -63,7 +63,8 @@ impl AuthCommands {
                         let hashed_pass = Self::hash_password(pass);
                         user.passwords.push(hashed_pass);
                     }
-                   
+                                   user.flags.remove(&user::Flag::NoPass);
+
                 }
                 else {
                     return CommandResult::Response(Resp::Error(

@@ -147,6 +147,7 @@ pub enum RedisCommand {
     Acl {
         subcommand: String,
         arguments: Vec<String>,}
+    
 }
 impl RedisCommand {
     pub fn from_parts(command: &str, args: &[&str]) -> Result<Self, String> {
