@@ -5,9 +5,9 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{commands_parser::RedisCommand, db::Client, parser::Parser, resp::Resp};
+use crate::{commands_parser::RedisCommand, db::ClientRequest, parser::Parser, resp::Resp};
 
-pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>, port: String) {
+pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<ClientRequest>, port: String) {
     println!("Connecting to master at {}", master_addr);
 
     let stream = TcpStream::connect(master_addr)
@@ -170,12 +170,11 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                         }
                     };
 
-                    let client = Client {
+                    let client = ClientRequest {
                         client_id: Uuid::new_v4(),
                         command,
                         resp_command: resp_cmd,
                         response_tx: tx.clone(),
-                        timeout: None,
                     };
 
                     if let Err(e) = db_tx.send(client).await {

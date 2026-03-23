@@ -4,7 +4,7 @@ use std::vec;
 
 use sha2::Digest;
 
-use crate::command_router::CommandResult;
+use crate::commands::CommandResult;
 use crate::db::DB;
 use crate::resp::Resp;
 use crate::user;
@@ -12,9 +12,16 @@ use crate::user;
 pub struct AuthCommands;
 
 impl AuthCommands {
-    pub fn acl(db: &mut DB, subcommand: String, arguments: Vec<String>) -> CommandResult {
+    pub fn acl(db: &mut DB, client_id: uuid::Uuid, subcommand: String, arguments: Vec<String>) -> CommandResult {
         match subcommand.to_ascii_lowercase().as_str() {
-            "whoami" => CommandResult::Response(Resp::BulkString(b"default".to_vec())),
+            "whoami" => {
+                let username = db.authenticated_user(client_id);
+                if let Some(username) = username {
+                    CommandResult::Response(Resp::BulkString(username.as_bytes().to_vec()))
+                } else {
+                    CommandResult::Response(Resp::BulkString(b"NOAUTH Authentication required.".to_vec()))
+                }
+            }
             "getuser" => {
                 let username = arguments.get(0);
                 if username.is_none() {
@@ -27,10 +34,13 @@ impl AuthCommands {
 
                 if let Some(user) = user {
                     let mut response = VecDeque::new();
-                    let mut flags = Self::get_flags_for_user(user);
-                    let mut passwords = Self::get_passwords_for_user(user);
-                    response.append(&mut flags);
-                    response.append(&mut passwords);
+                    let  flags = Resp::from_strings(user.get_flags_for_user());
+                    let  flags_resp = Resp::BulkString("flags".as_bytes().to_vec());
+                    let  passwords = Resp::from_strings((*user.passwords).to_vec());
+                    let  password  = Resp::BulkString("passwords".as_bytes().to_vec());
+
+                    response.append(&mut vec![flags_resp, flags].into());
+                    response.append(&mut vec![password, passwords].into());
                     CommandResult::Response(Resp::Array(response))
                 } else {
                     CommandResult::Response(Resp::Error(b"ERR no such user".to_vec()))
@@ -44,7 +54,7 @@ impl AuthCommands {
                     ));
                 }
                 let username = username.unwrap();
-                let mut user = db
+                let  user = db
                     .users
                     .entry(username.clone())
                     .or_insert_with(|| user::User {
@@ -63,7 +73,7 @@ impl AuthCommands {
                             ));
                         }
                         let pass = &pass_arg[idx + first_char.len_utf8()..];
-                        let hashed_pass = Self::hash_password(pass);
+                        let hashed_pass = DB::hash_password(pass);
                         user.passwords.push(hashed_pass);
                     }
                     user.flags.remove(&user::Flag::NoPass);
@@ -78,48 +88,13 @@ impl AuthCommands {
             _ => CommandResult::Response(Resp::Error(b"ERR unknown ACL subcommand".to_vec())),
         }
     }
-    pub fn auth(db: &mut DB, username: String, password: String) -> CommandResult {
-        let user = db.users.get(&username);
-        if let Some(user) = user {
-            for stored_hash in &user.passwords {
-                if Self::validate_password(&password, stored_hash) {
-                    return CommandResult::Response(Resp::SimpleString(b"OK".to_vec()));
-                }
-            }
-            CommandResult::Response(Resp::Error(b"WRONGPASS invalid username-password pair or user is disabled.".to_vec()))
+    pub fn auth(db: &mut DB, client_id: uuid::Uuid, username: String, password: String) -> CommandResult {
+        if db.authenticate_user(&username, &password, client_id) {
+            CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
         } else {
-            CommandResult::Response(Resp::Error(b"ERR no such user".to_vec()))
+            CommandResult::Response(Resp::Error(b"WRONGPASS invalid username-password pair or user is disabled.".to_vec()))
         }
     }
-    fn get_flags_for_user(user: &user::User) -> VecDeque<Resp> {
-        let flag = Resp::BulkString("flags".as_bytes().to_vec());
 
-        let flags = user
-            .flags
-            .iter()
-            .map(|flag| Resp::BulkString(flag.to_str().to_string().into_bytes()))
-            .collect();
 
-        vec![flag, Resp::Array(flags)].into()
-    }
-    fn get_passwords_for_user(user: &user::User) -> VecDeque<Resp> {
-        let pass = Resp::BulkString("passwords".as_bytes().to_vec());
-        let passwords: VecDeque<Resp> = user
-            .passwords
-            .iter()
-            .map(|pw| Resp::BulkString(pw.as_bytes().to_vec()))
-            .collect();
-
-        vec![pass, Resp::Array(passwords)].into()
-    }
-    pub fn hash_password(password: &str) -> String {
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(password.as_bytes());
-        let result = hasher.finalize();
-        hex::encode(result)
-    }
-
-    pub fn validate_password(password: &str, stored_hash: &str) -> bool {
-        Self::hash_password(password) == stored_hash
-    }
 }

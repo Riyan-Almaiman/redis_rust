@@ -12,7 +12,6 @@ mod sorted_list;
 mod blocking_list;
 mod blocking_manger;
 mod blocking_stream;
-mod command_router;
 mod commands;
 mod db;
 mod replication;
@@ -40,7 +39,7 @@ use crate::commands_parser::RedisCommand;
 
 use crate::db::DB;
 
-use crate::db::Client;
+use crate::db::ClientRequest;
 
 use crate::parser::Parser;
 
@@ -135,7 +134,7 @@ async fn main() {
         });
     }
 }
-async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
+async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<ClientRequest>, uuid: Uuid) {
     let mut parser = Parser::new();
     let (mut reader, mut writer) = connection.into_split();
     let mut buffer = [0u8; 1024];
@@ -184,9 +183,8 @@ async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client
             }
         }
         for (i, parsed_command) in commands.iter().enumerate() {
-            let client_req = Client {
+            let client_req = ClientRequest {
                 client_id: uuid,
-                timeout: None,
                 response_tx: conn_tx.clone(),
                 resp_command: resp_commands[i].clone(),
                 command: parsed_command.clone(),

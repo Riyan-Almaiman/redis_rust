@@ -1,4 +1,4 @@
-use crate::command_router::CommandResult;
+use crate::commands::CommandResult;
 use crate::db::DB;
 use crate::resp::Resp;
 use crate::resp::Resp::{BulkString, Integer};
@@ -15,32 +15,11 @@ impl ServerCommands {
         CommandResult::Response(Resp::SimpleString(b"PONG".to_vec()))
     }
     pub fn publish(db: &mut DB, channel: String, message: String) -> CommandResult {
-        let mut count = 0;
-        for (client_id, channels) in &db.subscribers {
-            if channels.contains(&channel) {
-                if let Some(tx) = db.subscriber_txs.get(client_id) {
-                    let mut resp = Vec::new();
-                    Resp::Array(
-                        vec![
-                            Resp::BulkString(b"message".to_vec()),
-                            Resp::BulkString(channel.as_bytes().to_vec()),
-                            Resp::BulkString(message.as_bytes().to_vec()),
-                        ]
-                        .into(),
-                    )
-                    .write_format(&mut resp);
-                    let _ = tx.send(resp);
-                    count += 1;
-                }
-            }
-        }
+        let count = db.publish_message(&channel, &message);
         CommandResult::Response(Resp::Integer(count))
     }
     pub fn unsubscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
-        if let Some(channels) = db.subscribers.get_mut(&client_id) {
-            channels.retain(|c| c != &channel);
-        }
-        let remaining = db.subscribers.get(&client_id).map_or(0, |c| c.len());
+        let remaining = db.unsubscribe_client(client_id, &channel);
 
         let response = Resp::Array(
             vec![
@@ -57,17 +36,11 @@ impl ServerCommands {
         CommandResult::Response(Resp::BulkString(data))
     }
     pub fn subscribe(db: &mut DB, channel: String, client_id: Uuid) -> CommandResult {
-        let subscriber = db
-            .subscribers
-            .entry(client_id)
-            .or_insert_with(|| Vec::new());
-        if !subscriber.contains(&channel) {
-            subscriber.push(channel.clone());
-        }
+        let count = db.subscribe_client(client_id, channel.clone());
         let mut resp = VecDeque::new();
         resp.push_back(BulkString("subscribe".as_bytes().to_vec()));
         resp.push_back(BulkString(channel.as_bytes().to_vec()));
-        resp.push_back(Integer(subscriber.len()));
+        resp.push_back(Integer(count));
 
         CommandResult::Subscribe(Resp::Array(resp))
     }
@@ -146,12 +119,12 @@ impl ServerCommands {
     }
 
     pub fn multi(db: &mut DB, client_id: uuid::Uuid) -> CommandResult {
-        db.multi_list.insert(client_id, vec![]);
+        db.begin_multi(client_id);
         CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
     }
 
     pub fn discard(db: &mut DB, client_id: uuid::Uuid) -> CommandResult {
-        if db.multi_list.remove(&client_id).is_some() {
+        if db.discard_multi(client_id) {
             CommandResult::Response(Resp::SimpleString(b"OK".to_vec()))
         } else {
             CommandResult::Response(Resp::Error(b"ERR DISCARD without MULTI".to_vec()))
@@ -159,8 +132,8 @@ impl ServerCommands {
     }
 
     pub fn exec(db: &mut DB, client_id: uuid::Uuid) -> CommandResult {
-        if let Some(client) = db.multi_list.remove(&client_id) {
-            CommandResult::Exec(client)
+        if let Some(commands) = db.take_multi_commands(client_id) {
+            CommandResult::Exec(commands)
         } else {
             CommandResult::Response(Resp::Error(b"ERR EXEC without MULTI".to_vec()))
         }

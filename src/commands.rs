@@ -1,6 +1,104 @@
-pub mod auth_commands;
-pub mod list_commands;
-pub mod server_commands;
-pub mod stream_commands;
-pub mod string_commands;
-pub mod geo_commands;
+use crate::blocking_stream::StreamWait;
+mod auth_commands;
+mod geo_commands;
+mod list_commands;
+mod server_commands;
+mod stream_commands;
+mod string_commands;
+
+use crate::commands::auth_commands::AuthCommands;
+use crate::commands::geo_commands::GeoCommands;
+use crate::commands::list_commands::ListCommands;
+use crate::commands::server_commands::ServerCommands;
+use crate::commands::stream_commands::StreamCommands;
+use crate::commands::string_commands::StringCommands;
+use crate::commands_parser::RedisCommand;
+use crate::resp::Resp;
+use uuid::Uuid;
+
+pub enum CommandResult {
+    Response(Resp),
+    Wait {
+        timeout: u64,
+        replicas: u64,
+        offset: u64,
+    },
+    Subscribe(Resp),
+    BlockList {
+        keys: Vec<Vec<u8>>,
+        timeout: f64,
+    },
+    RegisterSlave(Resp),
+    BlockStream {
+        client_id: Uuid,
+        streams: Vec<StreamWait>,
+        timeout_ms: f64,
+    },
+
+    Exec(Vec<RedisCommand>),
+
+    None,
+}
+
+use crate::db::DB;
+
+pub fn route(db: &mut DB, cmd: RedisCommand, client_id: Uuid) -> CommandResult {
+    match cmd {
+        RedisCommand::Wait {
+            timeout,
+            replicas_num,
+        } => ServerCommands::wait(db, timeout, replicas_num),
+        RedisCommand::Auth { username, password } => AuthCommands::auth(db, client_id, username, password),
+        RedisCommand::Acl { subcommand, arguments } => AuthCommands::acl(db, client_id, subcommand, arguments),
+        RedisCommand::GeoSearch { key, longitude, latitude, radius } => GeoCommands::geosearch(db, key, longitude, latitude, radius),
+        RedisCommand::GeoDist { key, member1, member2 } => GeoCommands::geodist(db, key, member1, member2),
+        RedisCommand::GeoPos { key, members } => GeoCommands::geopos(db, key, members),   
+        RedisCommand::Zrem { key, value } => ListCommands::zrem(db, key, value),
+        RedisCommand::GeoAdd { key, longitude, latitude, member }   => GeoCommands::geoadd(db, key, longitude, latitude, member),
+        RedisCommand::Zscore { key, value } => ListCommands::zscore(db, key, value),
+        RedisCommand::Zcard(key) => ListCommands::zcard(db, key),
+        RedisCommand::Zrank { key, values } => ListCommands::zrank(db, key, values),
+        RedisCommand::Zrange { key, start, end } => ListCommands::zrange(db, key, start, end),
+         RedisCommand::Zadd { key, values } => ListCommands::zadd(db, key, values),
+        RedisCommand::Unsubscribe(channel) => ServerCommands::unsubscribe(db, channel, client_id),
+        RedisCommand::Config(args) => ServerCommands::config(db, args),
+        RedisCommand::Ping => ServerCommands::ping(),
+        RedisCommand::Subscribe(channel) => ServerCommands::subscribe(db, channel, client_id),
+        RedisCommand::Publish{channel, message} => ServerCommands::publish(db, channel, message),
+
+        RedisCommand::Keys(key) => StringCommands::keys(db, key),
+
+        RedisCommand::Echo(data) => ServerCommands::echo(data),
+        RedisCommand::Get(key) => StringCommands::get(db, key),
+        RedisCommand::Set { key, value, expiry } => StringCommands::set(db, key, value, expiry),
+        RedisCommand::Incr { key } => StringCommands::incr(db, key),
+        RedisCommand::LPush { key, elements } => ListCommands::lpush(db, key, elements),
+        RedisCommand::RPush { key, elements } => ListCommands::rpush(db, key, elements),
+        RedisCommand::LLen(key) => ListCommands::llen(db, key),
+        RedisCommand::LPop { key, count } => ListCommands::lpop(db, key, count),
+        RedisCommand::LRange { key, start, stop } => ListCommands::lrange(db, key, start, stop),
+        RedisCommand::BLPop { keys, timeout } => ListCommands::blpop(db, keys, timeout),
+        RedisCommand::Type(key) => ServerCommands::data_type(db, key),
+        RedisCommand::Info { section } => ServerCommands::info(db, section),
+        RedisCommand::REPLCONF(args) => ServerCommands::replconf(args, db, client_id),
+        RedisCommand::PSYNC { .. } => ServerCommands::psync(db),
+        RedisCommand::Multi => ServerCommands::multi(db, client_id),
+        RedisCommand::Discard => ServerCommands::discard(db, client_id),
+        RedisCommand::Exec => ServerCommands::exec(db, client_id),
+        RedisCommand::InternalTimeoutCleanup { client_id } => {
+            ServerCommands::cleanup_timeout(db, client_id)
+        }
+        RedisCommand::XRead { streams, timeout } => {
+            StreamCommands::xread(db, streams, timeout, client_id)
+        }
+        RedisCommand::XRange {
+            key,
+            start_time,
+            end_time,
+            start_sequence,
+            end_sequence,
+        } => StreamCommands::xrange(db, key, start_time, end_time, start_sequence, end_sequence),
+        RedisCommand::XAdd { key, fields, id } => StreamCommands::xadd(db, key, fields, id),
+        RedisCommand::Error(err) => CommandResult::Response(Resp::Error(err.into_bytes())),
+    }
+}

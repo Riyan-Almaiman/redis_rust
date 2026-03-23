@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::commands_parser::RedisCommand;
+use crate::{commands_parser::RedisCommand, resp::Resp};
 
 pub struct User {
     pub name: String,
@@ -41,11 +41,28 @@ impl Flag {
 }
 
 impl User {
+       pub fn get_passwords_for_user(&self) -> Vec<String> {
+        let passwords: Vec<String> = self
+            .passwords
+            .iter()
+            .map(|pw| pw.clone())
+            .collect();
+        passwords
+    }
      pub fn can_execute(&self, cmd: &RedisCommand) -> bool {
         let cmd_name = cmd.name().to_ascii_lowercase();
         self.allowed_commands.contains(&cmd_name) || self.allowed_commands.contains("all")
     }
     pub fn has_flag(&self, flag: &Flag) -> bool {
         self.flags.contains(flag) || self.flags.contains(&Flag::All)
+    }
+      pub  fn get_flags_for_user(&self) -> Vec<String> {
+        let flags: Vec<String> = self
+            .flags
+            .iter()
+            .map(|flag| flag.to_str().to_string())
+            .collect();
+
+        flags
     }
 }

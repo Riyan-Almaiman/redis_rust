@@ -1,7 +1,7 @@
 use crate::blocking_list::{BlockingClient, BlockingList};
 use crate::blocking_stream::{BlockingStreamClient, BlockingStreams, StreamWait};
 use crate::commands_parser::RedisCommand;
-use crate::db::{Client, DB};
+use crate::db::{ClientRequest, DB};
 use crate::resp::Resp;
 use crate::send::send_cmd;
 use crate::valuetype::ValueType;
@@ -46,9 +46,8 @@ impl DB {
                 let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
                 let _ = sender_clone
-                    .send(Client {
+                    .send(ClientRequest {
                         client_id,
-                        timeout: None,
                         response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),
                         command: RedisCommand::InternalTimeoutCleanup { client_id },
@@ -79,9 +78,8 @@ impl DB {
                 tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
                 let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 let _ = sender_clone
-                    .send(Client {
+                    .send(ClientRequest {
                         client_id: id,
-                        timeout: None,
                         response_tx: tx,
                         resp_command: Resp::Error(b"ok".to_vec()),
 
