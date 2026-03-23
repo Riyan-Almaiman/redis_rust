@@ -108,8 +108,8 @@ impl ServerCommands {
     pub fn replconf(args: Vec<String>, db: &mut DB, client_id: Uuid) -> CommandResult {
         match &db.role {
             Role::Master {
-                replication_id,
-                replication_offset,
+                replication_id: _,
+                replication_offset: _,
             } => {
                 if args.len() >= 2
                     && args[0].to_lowercase() == "ack"

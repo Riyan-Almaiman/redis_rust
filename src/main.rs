@@ -137,12 +137,12 @@ async fn main() {
         });
     }
 }
-async fn handle_stream(mut connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
+async fn handle_stream(connection: TcpStream, connection_tx: mpsc::Sender<Client>, uuid: Uuid) {
     let mut parser = Parser::new();
     let (mut reader, mut writer) = connection.into_split();
     let mut buffer = [0u8; 1024];
 
-    let (mut conn_tx, mut conn_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
         while let Some(data) = conn_rx.recv().await {
             let _ = writer.write_all(&data).await;

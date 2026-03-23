@@ -1,8 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use ordered_float::OrderedFloat;
 
 pub struct SortedList {
     set: BTreeSet<(OrderedFloat<f64>, String)>,
+    values: HashSet<String>,
 }
 
 impl SortedList {
@@ -10,17 +11,67 @@ impl SortedList {
     pub fn new() -> Self {
         Self {
             set: BTreeSet::new(),
+            values: HashSet::new(),
         }
     }
-
+  pub fn insert_or_update(&mut self, value: String, score: f64) -> bool {
+        if self.values.contains(&value) {
+            if let Some(old_pair) = self
+                .set
+                .iter()
+                .find(|(_, v)| *v == value)
+                .cloned()
+            {
+                self.set.remove(&old_pair);
+            }
+            self.set.insert((OrderedFloat(score), value));
+            false
+            
+        } else {
+            self.set.insert((OrderedFloat(score), value.clone()));
+            self.values.insert(value);
+            true 
+        }}
     /// Insert a value with a score
     pub fn insert(&mut self, value: String, score: f64) {
-        self.set.insert((OrderedFloat(score), value));
+        if self.set.insert((OrderedFloat(score), value.clone())) {
+            self.values.insert(value);
+        }
     }
 
     /// Remove an exact value with a score
     pub fn remove(&mut self, value: &str, score: f64) -> bool {
-        self.set.remove(&(OrderedFloat(score), value.to_string()))
+        if self.set.remove(&(OrderedFloat(score), value.to_string())) {
+            self.values.remove(value);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if a (value, score) pair exists
+    pub fn contains(&self, value: &str, score: f64) -> bool {
+        self.set.contains(&(OrderedFloat(score), value.to_string()))
+    }
+
+    /// Check if a value exists regardless of score (fast O(1))
+    pub fn contains_value(&self, value: &str) -> bool {
+        self.values.contains(value)
+    }
+
+    /// Number of items in the set
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    /// Is the set empty?
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    /// Iterate over items (sorted by score ascending)
+    pub fn iter(&self) -> impl Iterator<Item = &(OrderedFloat<f64>, String)> {
+        self.set.iter()
     }
 
     /// Get the lowest-score item
@@ -31,21 +82,6 @@ impl SortedList {
     /// Get the highest-score item
     pub fn max(&self) -> Option<&(OrderedFloat<f64>, String)> {
         self.set.last()
-    }
-
-    /// Check if a value with a score exists
-    pub fn contains(&self, value: &str, score: f64) -> bool {
-        self.set.contains(&(OrderedFloat(score), value.to_string()))
-    }
-
-    /// Number of items in the set
-    pub fn len(&self) -> usize {
-        self.set.len()
-    }
-
-    /// Iterate over items (sorted by score ascending)
-    pub fn iter(&self) -> impl Iterator<Item = &(OrderedFloat<f64>, String)> {
-        self.set.iter()
     }
 
     /// Get top N highest scores
@@ -61,5 +97,6 @@ impl SortedList {
     /// Clear everything
     pub fn clear(&mut self) {
         self.set.clear();
+        self.values.clear();
     }
 }

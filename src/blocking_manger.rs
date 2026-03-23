@@ -43,7 +43,7 @@ impl DB {
         if timeout_ms > 0.0 {
             let sender_clone = self.sender.clone();
             tokio::spawn(async move {
-                let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+                let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 tokio::time::sleep(Duration::from_millis(timeout_ms as u64)).await;
                 let _ = sender_clone
                     .send(Client {
@@ -77,7 +77,7 @@ impl DB {
 
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
-                let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+                let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
                 let _ = sender_clone
                     .send(Client {
                         client_id: id,

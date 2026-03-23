@@ -33,6 +33,7 @@ pub struct DB {
     pub slaves: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
     pub ack_waiters: Vec<mpsc::UnboundedSender<(Uuid, u64)>>,
     pub dir: String,
+    
     pub file_name: String,
     pub subscribers: HashMap<Uuid, Vec<String>>,
     pub subscriber_txs: HashMap<Uuid, mpsc::UnboundedSender<Vec<u8>>>,
@@ -99,7 +100,7 @@ impl DB {
                 let cmd_name = arr.pop_front();
                 if let Some(cmd) = cmd_name {
                     let cmd_name_bytes = Resp::get_bytes(&cmd).unwrap();
-                    let cmd_name = std::str::from_utf8(cmd_name_bytes).unwrap().to_lowercase();
+                    let _cmd_name = std::str::from_utf8(cmd_name_bytes).unwrap().to_lowercase();
                     let args: Vec<&str> = arr
                         .iter()
                         .map(|a| {
@@ -290,7 +291,7 @@ impl DB {
                         let mut acked = 0;
                         let deadline = tokio::time::sleep(Duration::from_millis(timeout));
                         tokio::pin!(deadline);
-                        let mut interval = tokio::time::interval(Duration::from_millis(50));
+                        let _interval = tokio::time::interval(Duration::from_millis(50));
 
                         for slave in slaves.values() {
                             let _ = slave.send(ack_buf.clone());
@@ -359,7 +360,7 @@ impl DB {
             }
 
             if Self::is_write_command(&command) {
-                let slaves_count = self.send_slaves(&cmd_buffer);
+                let _slaves_count = self.send_slaves(&cmd_buffer);
             }
         }
     }

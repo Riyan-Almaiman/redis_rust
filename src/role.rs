@@ -46,9 +46,9 @@ impl Role {
                 replication_offset
             ),
             Role::Slave {
-                master,
+                master: _,
                 replication_id,
-                port,
+                port: _,
                 replication_offset,
             } => format!(
                 "{}\r\nslave_replid:{}\r\nslave_repl_offset:{}\r\n",
@@ -62,27 +62,27 @@ impl Role {
         match self {
             Role::Master {
                 replication_id,
-                replication_offset,
+                replication_offset: _,
             } => replication_id.clone(),
 
             Role::Slave {
-                master,
+                master: _,
                 replication_id,
-                port,
-                replication_offset,
+                port: _,
+                replication_offset: _,
             } => replication_id.clone(),
         }
     }
     pub fn get_repl_offset(&self) -> String {
         match self {
             Role::Master {
-                replication_id,
+                replication_id: _,
                 replication_offset,
             } => replication_offset.to_string(),
             Role::Slave {
-                master,
-                replication_id,
-                port,
+                master: _,
+                replication_id: _,
+                port: _,
                 replication_offset,
             } => replication_offset.to_string(),
         }

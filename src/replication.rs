@@ -83,7 +83,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
     .await;
     let mut offset: usize = 0;
     let mut buffer = [0u8; 4096];
-    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (tx, _rx) = mpsc::unbounded_channel::<Vec<u8>>();
     loop {
         let n = match reader.read(&mut buffer).await {
             Ok(0) => {
@@ -111,7 +111,7 @@ pub async fn start_replication(master_addr: String, db_tx: mpsc::Sender<Client>,
                     }
                 }
 
-                Resp::BulkString(data) => {
+                Resp::BulkString(_data) => {
                     continue;
                 }
 

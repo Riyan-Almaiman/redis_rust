@@ -23,14 +23,18 @@ impl ListCommands {
     }
     pub fn zadd(db: &mut DB, key: String, values: Vec<(f64, String)>) -> CommandResult {
         let  key_map = db.database.entry(key.into()).or_insert(KeyValue{expiry: None, value: ValueType::SortedList(SortedList::new())} );
+        let mut created = 0;
         for val in &values {
                 if let ValueType::SortedList(ref mut value) = key_map.value {
-                    value.insert(val.1.clone(), val.0);
+                   
+                    if value.insert_or_update(val.1.clone(), val.0) {
+                        created+=1;
+                    }
                 }
         }
 
 
-        CommandResult::Response(Resp::Integer(values.len()))
+        CommandResult::Response(Resp::Integer(created))
 
     }
     pub fn rpush(db: &mut DB, key: Vec<u8>, elements: Vec<Vec<u8>>) -> CommandResult {

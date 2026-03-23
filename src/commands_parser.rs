@@ -484,7 +484,7 @@ impl RedisCommand {
     }
     pub fn name(&self) -> &str {
         match self {
-            RedisCommand::Zadd { key, values }=>"zadd",
+            RedisCommand::Zadd { key: _, values: _ }=>"zadd",
             RedisCommand::Unsubscribe(_) => "unsubscribe",
             RedisCommand::Publish { .. } => "publish",
             RedisCommand::Ping => "ping",
