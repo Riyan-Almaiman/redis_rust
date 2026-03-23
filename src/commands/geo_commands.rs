@@ -12,7 +12,14 @@ use crate::valuetype::ValueType;
 impl GeoCommands {
     
     pub fn geoadd(db: &mut DB, key: String, longitude: f64, latitude: f64, member: String) -> CommandResult {
-        
+        if latitude < -85.05112878 || latitude > 85.05112878 {
+            return CommandResult::Response(Resp::Error(format!("ERR invalid longitude,latitude pair {},{}", longitude, latitude).into_bytes()));
+        }
+        if longitude < -180.0 || longitude > 180.0 {
+            return CommandResult::Response(Resp::Error(format!("ERR invalid longitude,latitude pair {},{}", longitude, latitude).into_bytes()));
+        }
+
+         let geo_list = db.database.entry(key.clone()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::GeoList(GeoList::new()) });
         let geo_list = db.database.entry(key.into_bytes()).or_insert_with(|| KeyValue { expiry: None, value: ValueType::GeoList(GeoList::new()) });
         match &mut geo_list.value {
             ValueType::GeoList(gl) => {
