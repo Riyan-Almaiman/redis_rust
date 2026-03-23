@@ -287,9 +287,17 @@ impl DB {
                     resp_command,
                 } => (command, response_tx, client_id, resp_command),
             };
-
-            if !self.sessions.contains_key(&client_id) {
-                continue;
+            let session = self.sessions.get(&client_id);
+            if let Some(session) = session {
+                    if session.authenticated_user.is_none() && !matches!(command, RedisCommand::Auth { .. } ) {
+                        let res = b"NOAUTH Authentication required.".to_vec();
+                        send_cmd(response_tx.clone(), Resp::Error(res));
+                        continue;
+                    }
+            }
+            else {
+                self.initialize_session(client_id, response_tx);
+                continue;;
             }
 
             if self.handle_subscribed_client(client_id, &command, &response_tx) {

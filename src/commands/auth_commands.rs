@@ -47,6 +47,11 @@ impl AuthCommands {
                 }
             }
             "setuser" => {
+                                let username = db.authenticated_user(client_id);
+                if username.is_none() {
+                    return CommandResult::Response(Resp::Error(b"NOAUTH Authentication required.".to_vec()));
+                }
+
                 let username = arguments.get(0);
                 if username.is_none() {
                     return CommandResult::Response(Resp::Error(
